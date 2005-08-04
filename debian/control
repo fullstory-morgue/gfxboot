@@ -1,0 +1,12 @@
+Source: gfxboot
+Section: utils
+Priority: optional
+Maintainer: Stefan Lippers-Hollmann <s.l-h@gmx.de>
+Build-Depends: debhelper (>= 4.0.0), xlibs-dev, nasm
+Standards-Version: 3.6.1
+
+Package: gfxboot
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: SuSE gfxboot, here you find the graphical boot logo. Suitable for both lilo and
+ syslinux.

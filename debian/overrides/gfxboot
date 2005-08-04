@@ -1,0 +1,4 @@
+gfxboot: binary-without-manpage getx11font
+gfxboot: binary-without-manpage help2txt
+gfxboot: binary-without-manpage mkbootmsg
+gfxboot: extra-license-file usr/share/doc/gfxboot/COPYING.gz
