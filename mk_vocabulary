@@ -17,9 +17,9 @@
   trace dtrace
   malloc free memsize dumpmem
   gettype settype
-  screen.size image.colors
+  screen.size image.colors vscreen.size
   moveto currentpoint lineto setcolor currentcolor putpixel getpixel
-  setfont currentfont fontheight strsize show
+  setfont currentfont fontheight strsize show settextmodecolor
   image loadpalette tint settintcolor setpalette getpalette
   settransparentcolor
   savescreen restorescreen
@@ -47,7 +47,6 @@
   currenttitle
 
   videomodes getvideomode
-  xsavescreen
 
   usleep notimeout
   time
@@ -69,6 +68,16 @@
   setimage currentimage
 
   settransparency currenttransparency
+
+  unpackimage
+
+  keepmode
+
+  blend blend2
+
+  memcpy
+
+  xxx
 
 );
 

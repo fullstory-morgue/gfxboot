@@ -2,18 +2,18 @@
 # translation of nl.po to Dutch
 # LANGUAGE translations for boot loader
 # Copyright (C) 2004 SUSE LINUX AG
-# Arthur & Ettie Kerkmeester <a.s.kerkmeester@hccnet.nl>, 2004.
+# Arthur & Ettie Kerkmeester <a.s.kerkmeester@hccnet.nl>, 2004, 2005.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: nl\n"
-"PO-Revision-Date: 2004-09-05 18:46+0200\n"
+"PO-Revision-Date: 2005-03-07 21:51+0100\n"
 "Last-Translator: Arthur & Ettie Kerkmeester <a.s.kerkmeester@hccnet.nl>\n"
 "Language-Team: Dutch <i18n@suse.de>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: KBabel 1.3.1\n"
+"X-Generator: KBabel 1.10\n"
 
 # ok button label
 #. txt_ok
@@ -28,7 +28,7 @@ msgstr "Annuleren"
 # reboot button label
 #. txt_reboot
 msgid "Reboot"
-msgstr "Reboot"
+msgstr "Herstarten"
 
 # continue button label
 #. txt_continue
@@ -135,10 +135,10 @@ msgstr ""
 #. txt_insert_disk3
 #, c-format
 msgid ""
-"This is not a SUSE LINUX 9.2 Boot Disk.\n"
+"This is not a SUSE LINUX 9.3 Boot Disk.\n"
 "Please insert Boot Disk %u."
 msgstr ""
-"Dit is geen SUSE LINUX 9.2 bootdisk.\n"
+"Dit is geen SUSE LINUX 9.3 bootdisk.\n"
 "Plaats bootdisk %u aub."
 
 # password dialog title
@@ -220,7 +220,7 @@ msgstr "Wachtwoord\n"
 # label for ftp user input
 #. txt_user1
 msgid "User (anonymous login if empty)\n"
-msgstr "Gebruiker (indien leeg: anonieme login)\n"
+msgstr "Gebruiker (indien leeg: anonieme aanmelding)\n"
 
 # dialog title for nfs installation
 #. txt_nfs_title
@@ -246,4 +246,9 @@ msgstr "HTTP installatie"
 #. txt_driver_update
 msgid "Driver"
 msgstr "Driver"
+
+# as in Windows Authentication Domain
+#. txt_domain
+msgid "Domain\n"
+msgstr "Domein\n"
 

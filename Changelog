@@ -1,3 +1,74 @@
+21/3/2005:	v3.0.15
+	- added slowenic translations
+
+16/3/2005:	v3.0.14
+	- new graphics
+
+16/3/2005:	v3.0.13
+	- speedup transparent menu drawing
+	- adjust some colors
+
+15/3/2005:	v3.0.12
+	- updated translations
+
+8/3/2005:	v3.0.11
+	- fixed install source dialogs
+	- fixed some memory leaks
+
+7/3/2005:	v3.0.10
+	- translation fix (#66743)
+	- new splash graphics
+	- fixed slow timeout (#66730)
+	- enabled transparent menus
+
+1/3/2005:	v3.0.9
+	- new graphics
+	- fixed translation texts
+	- prepared for transparent menus
+
+22/2/2005:	v3.0.8
+	- fixed translation texts
+	- ask for smb domain
+	- corrected minor drawing error
+
+21/2/2005:	v3.0.7
+	- 9.3 theme
+	- fixed color handling bug
+
+15/2/2005:	v3.0.6
+	- sync language list with yast2
+	- fixed making slp default
+
+14/2/2005:	v3.0.5
+	- allow selecting slp or cdrom as default install target
+
+8/2/2005:	v3.0.4
+	- support ukrainian
+
+4/2/2005:	v3.0.3
+	- use 8x16 console font (8x14 does not always exist)
+	- avoid overlap with bootloader memory usage
+	- fixed memory addressing probem
+
+1/2/2005:	v3.0.2
+	- workaround to avoid memory corruption
+	- added experimental mouse code (for testing)
+
+31/1/2005:	v3.0.1
+	- support symlinks in cpio archive
+	- lots of minor fixes
+	- renamed files to stick to 8.3 scheme
+	- much improved test script
+	- use bold font
+	- use 800x600, 16bit color
+	- added new help texts
+
+25/1/2005:	v3.0.0
+	- jpeg decoding works
+
+8/11/2004:	v2.6.0
+	- rewrote internal memory management
+
 5/10/2004:	v2.5.10
 	- added help text for '64bit' switch (#46806)
 

@@ -8,7 +8,9 @@
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % Some global vars.
 %
-/panel.text.y	461 def
+/panel.size     { clip.size pop 24 } def
+/panel.y        { clip.size exch pop panel.size exch pop sub } def
+/panel.text.y	{ panel.y 5 add } def
 /panel.font	font.normal def
 /panel.normal	black def
 /panel.high	fn_color def
@@ -22,6 +24,8 @@
 % ( ) ==> ( )
 %
 /panel.init {
+
+  /panel.back 0 panel.y moveto panel.size savescreen def
 
   % define panel layout
   /panel [
@@ -42,12 +46,12 @@
 
         [ keyF3 0 "F3" /panel.install /panel.install.width /panel.install.update /install.init ]
         [ keyF4 0 "F4" /panel.lang /panel.lang.width /panel.lang.update /lang.init ]
-        [ keyF5 0 "F5" /panel.splash /panel.splash.width /panel.splash.update /splash.init ]
-        [ keyF6 0 "F6" /panel.dud /panel.dud.width /panel.dud.update .undef ]
+%        [ keyF5 0 "F5" /panel.splash /panel.splash.width /panel.splash.update /splash.init ]
+        [ keyF5 0 "F5" /panel.dud /panel.dud.width /panel.dud.update .undef ]
 
         do_64bit_check 32+64bit_source and {
           64bit {
-            [ keyF7 0 "F7" /panel.bits /panel.bits.width /panel.bits.update /bits.init ]
+            [ keyF6 0 "F6" /panel.bits /panel.bits.width /panel.bits.update /bits.init ]
           } if
         } if
 
@@ -58,10 +62,10 @@
     } {
 
       [ keyF2 0 "F2" /panel.lang /panel.lang.width /panel.lang.update /lang.init ]
-      [ keyF3 0 "F3" /panel.splash /panel.splash.width /panel.splash.update /splash.init ]
+%      [ keyF3 0 "F3" /panel.splash /panel.splash.width /panel.splash.update /splash.init ]
       "profiles" findfile dup {
         /profile.data exch def
-        [ keyF4 0 "F4" /panel.profile /panel.profile.width /panel.profile.update /profile.init ]
+        [ keyF3 0 "F3" /panel.profile /panel.profile.width /panel.profile.update /profile.init ]
       } { pop } ifelse
 
     } ifelse
@@ -84,13 +88,17 @@
   panel.font setfont
 
   panel.bg setcolor
-  0 panel.text.y 5 sub moveto currentpoint
-  clip.size panel.text.y 5 sub sub fillrect
+  0 panel.y moveto currentpoint
+  panel.back restorescreen
+  currenttransparency
+  50 settransparency
+  panel.size fillrect
+  settransparency
   moveto
 
-  panel.border setcolor
-  0 -1 rmoveto
-  0 1 clip.size pop 3 div { pop putpixel 3 0 rmoveto } for
+%  panel.border setcolor
+%  0 -1 rmoveto
+%  0 1 clip.size pop 3 div { pop putpixel 3 0 rmoveto } for
 
   % don't change xmenu
   /xmenu xmenu

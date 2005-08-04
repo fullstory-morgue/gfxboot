@@ -108,7 +108,7 @@
   put
 
   xmenu .xm_width
-    0 xmenu .xm_list get { strsize pop max } forall xmenu.hspace 2 mul add
+    0 xmenu .xm_list get { exec strsize pop max } forall xmenu.hspace 2 mul add
   put
 
 } def
@@ -144,6 +144,18 @@
 
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+% Close menu.
+%
+% ( ) ==> ( )
+%
+/xmenu.done {
+  /xmenu.tmpbuf xmenu.tmpbuf free .undef def
+  /xmenu.saved.normal xmenu.saved.normal free .undef def
+  /xmenu.saved.selected xmenu.saved.selected free .undef def
+} def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % Draw xmenu.
 %
 % ( window ) ==> ( )
@@ -164,19 +176,54 @@
   dup xmenu.lheight mul xmenu.y add /xmenu.pos.y exch def
 
   xmenu.x xmenu.pos.y moveto
-  dup xmenu .xm_current get eq { xmenu.selected.bg } { xmenu.normal.bg } ifelse
-  setcolor xmenu.width xmenu.lheight fillrect
+
+  dup xmenu .xm_current get eq { xmenu.saved.selected } { xmenu.saved.normal } ifelse
+
+  dup {
+    transp { pop } { restorescreen } ifelse
+  } {
+    pop
+
+    dup xmenu .xm_current get eq { xmenu.selected.bg } { xmenu.normal.bg } ifelse
+    setcolor xmenu.width xmenu.lheight fillrect
+
+    dup xmenu .xm_current get eq {
+      xmenu.x xmenu.pos.y moveto
+      xmenu.dark xmenu.light xmenu.width xmenu.lheight drawborder
+    } if
+
+    dup xmenu .xm_current get eq { /xmenu.saved.selected } { /xmenu.saved.normal } ifelse
+      xmenu.x xmenu.pos.y moveto
+      xmenu.width xmenu.lheight
+      savescreen
+    def
+  } ifelse
+
+
+  transp {
+    % copy entry to avoid reading the screen again
+    dup xmenu .xm_current get eq { xmenu.saved.selected } { xmenu.saved.normal } ifelse
+    xmenu.tmpbuf .undef eq {
+      dup length malloc /xmenu.tmpbuf exch def
+    } if
+    xmenu.tmpbuf exch dup length memcpy
+
+    currenttransparency transp settransparency
+
+    0 xmenu.pos.y xmenu.y sub moveto 1 1 rmoveto
+    xmenu.saved xmenu.tmpbuf blend
+
+    settransparency
+
+    xmenu.x xmenu.pos.y moveto xmenu.tmpbuf restorescreen
+  } if
 
   dup xmenu .xm_current get eq { xmenu.selected.fg } { xmenu.normal.fg } ifelse setcolor
   xmenu.x xmenu.hspace add xmenu.pos.y xmenu.vspace add moveto
-  xmenu .xm_list get over get show
-
-  dup xmenu .xm_current get eq {
-    xmenu.x xmenu.pos.y moveto
-    xmenu.dark xmenu.light xmenu.width xmenu.lheight drawborder
-  } if
+  xmenu .xm_list get over get exec show
 
   pop
+
 
 } def
 
@@ -222,7 +269,7 @@
 
   % xmenu .xm_panel_width get xmenu.hspace 2 mul sub
 
-  xmenu .xm_list get xmenu .xm_current get get strsize pop
+  xmenu .xm_list get xmenu .xm_current get get exec strsize pop
 } def
 
 
@@ -233,15 +280,17 @@
 %
 /pmenu.update {
   xmenu .xm_panel_x get xmenu.hspace add panel.text.y moveto
-  xmenu .xm_panel_width get xmenu.hspace sub xmenu .xm_panel_height get
-  panel.bg setcolor fillrect
+
+% currently not needed - we're redrawing the whole panel anyway
+%  xmenu .xm_panel_width get xmenu.hspace sub xmenu .xm_panel_height get
+%  panel.bg setcolor fillrect
 
   panel.normal setcolor
   panel.font setfont
   xmenu .xm_panel_x get xmenu.hspace add
   panel.text.y
   moveto
-  xmenu .xm_list get xmenu .xm_current get get show
+  xmenu .xm_list get xmenu .xm_current get get exec show
 } def
 
 

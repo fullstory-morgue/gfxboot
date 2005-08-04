@@ -302,16 +302,16 @@
   } if
 
   % add splash only if an entry already exists
-  bc.cmd "splash" bootopt.find dup .undef ne {
-    % remove existing entry
-    dup skipnonspaces skipspaces strcpy pop
-
-    % append new entry
-    xmenu.splash .xm_current get splash.options exch get
-    "%s " bc.cmd dup length add sprintf
-  } {
-    pop
-  } ifelse
+%  bc.cmd "splash" bootopt.find dup .undef ne {
+%    % remove existing entry
+%    dup skipnonspaces skipspaces strcpy pop
+%
+%    % append new entry
+%    xmenu.splash .xm_current get splash.options exch get
+%    "%s " bc.cmd dup length add sprintf
+%  } {
+%    pop
+%  } ifelse
 
   xmenu.profile {
     profile.options xmenu.profile .xm_current get get dup "" ne {
@@ -343,7 +343,10 @@
 /MenuInit {
   bsplash.done
 
-  0 setcolor 0 0 moveto screen.size fillrect loadpalette
+  colorbits 8 le {
+    0 setcolor 0 0 moveto screen.size fillrect loadpalette
+  } if
+
   init
 
   /menu.entry -1 def
@@ -602,8 +605,12 @@
 
   currentpoint
   menu.status {
-    menu.bar.color
-    setcolor menu.bar.width menu.bar.height fillrect
+    menu.bar.color setcolor
+    currenttransparency
+    70 settransparency
+    menu.bar.width menu.bar.height
+    fillrect
+    settransparency
   } {
     currentpoint menu.bar.width menu.bar.height image
   } ifelse
@@ -888,9 +895,9 @@
   dup "memtest" eq over "memtest86" eq or { pop txt_memtest return } if
   syslinux {
     livecd {
-      dup "linux"     eq { pop "SUSE LINUX 9.2 LiveCD (english)" return } if
+      dup "linux"     eq { pop "SUSE LINUX 9.3 LiveCD (english)" return } if
       dup "failsafe"  eq { pop "LiveCD - Safe Settings" return } if
-      dup "linux2"    eq { pop "SUSE LINUX 9.2 LiveCD (deutsch)" return } if
+      dup "linux2"    eq { pop "SUSE LINUX 9.3 LiveCD (deutsch)" return } if
       dup "failsaf2"  eq { pop "LiveCD - Sichere Einstellungen" return } if
     } {
       dup "linux"     eq { pop txt_install        return } if
@@ -1036,22 +1043,29 @@
 
   /menu.text.xofs      10 def
   /menu.text.yofs       2 def
-  /menu.item.height    fontheight dup 3 div add def
+  /menu.item.height    fontheight dup 5 div add def
   /menu.bar.height     fontheight menu.text.yofs dup add add def
 
   font.normal setfont
 
-  /menu.text.normal    black             def
+  /menu.text.normal    black         def
   /menu.text.select    white             def
   /boot.text.options   white             def
   /boot.text.normal    white             def
   /infobox.bg          lightgray         def
   /infobox.text.normal black             def
 
-  /menu.bar.color      fn_color       def
+%  /menu.bar.color      fn_color       def
+  /menu.bar.color      somegreen       def
 
   /frame1.pos  { 100  90 } def
   /frame1.size { 325 195 } def
+
+  clip.size pop 800 eq {
+    /frame1.pos  { 265 191 } def
+    /frame1.size { 365 195 } def
+  } if
+
   /frame4.pos  { 560  62 } def
   /frame4.size {  22 264 } def
 
@@ -1059,12 +1073,12 @@
   /menu.start.y frame1.pos exch pop 12 add def
 
   /menu.bar.width frame1.size pop 20 sub def
-  /menu.max.entries 7 def
+  /menu.max.entries 6 def
   /menu.scrollbar false def
 
-  /boot.label.len 220 def
+  /boot.label.len 243 def
 
-  /boot.pos { boot.label.len 10 add 299 } def
+  /boot.pos { boot.label.len 10 add 350 } def
 
   /boot.buf.size 256 def
   /boot.buf boot.buf.size string def
@@ -1073,7 +1087,7 @@
   /ms.up       {   0 480 }  def
   /ms.down     {  23 480 }  def
 
-  /update.pos { clip.size pop txt_dud_ready strsize pop sub 20 sub 425 } def
+  /update.pos { clip.size pop txt_dud_ready strsize pop sub 20 sub clip.size exch pop 55 sub } def
 
 } def
 
@@ -1093,13 +1107,15 @@
   } if
 
   dup keyF8 eq syslinux and {
-    "kroete.data" findfile kroete.dir idle
+    kroete.file .undef eq { /kroete.file "kroete.dat" findfile def } if
+    kroete.file kroete.dir idle
     /kroete.dir kroete.dir 1 xor def
     pop 0
   } if
 
   dup keyF9 eq syslinux and {
     .undef 0 idle
+    kroete.file free /kroete.file .undef def
     pop 0
   } if
 
@@ -1120,13 +1136,26 @@
   } if
 
   dup keyShiftF8 eq debug 3 ge and {
-    currentcolor black setcolor currentpoint 300 0 moveto
-    memsize print "/" print print "  " print
-    moveto setcolor
+    currentcolor white setcolor
+
+    currentpoint 300 0 moveto
+    0 memsize print "/" print print "  " print
+    moveto
+
+    currentpoint 300 20 moveto
+    1 memsize print "/" print print "  " print
+    moveto
+
+    currentpoint 300 40 moveto
+    2 memsize print "/" print print "  " print
+    moveto
+
+    setcolor
     pop 0
   } if
 
   dup keyShiftF9 eq debug 3 ge and {
+    dumpmem
     pop 0
   } if
 
@@ -1136,16 +1165,20 @@
   } if
 
   dup keyShiftF11 eq {
-    currenttransparency 0x10 sub 0 max settransparency
+    /transp transp 0x10 sub 0 max def
     pop 0
   } if
 
-  dup keyF11 eq {
+  dup keyF11 eq debug 1 ge and {
 
-    0 1 479 {
-      0 1 639 {
+    dtrace
+
+    0 1 screen.size exch pop {
+      0 1 screen.size pop {
         over moveto
-        currentpoint 3 div 8 shl exch 3 div add setcolor
+        currentpoint 8 shl screen.size exch pop div 8 shl exch 8 shl screen.size pop div add
+        screen.size add currentpoint add sub 8 shl screen.size add div 2 div 16 shl add
+        setcolor
         putpixel
       } for
       pop
@@ -1154,8 +1187,35 @@
     pop 0
   } if
 
+  dup keyF12 eq {
+    % mouse support testing
+
+    1 keepmode
+
+    /mouse xxx def
+    red setcolor
+    mouse .undef eq {
+      700 580 moveto "no mouse" show
+    } {
+      {
+        mouse getdword 16 shl 16 shr screen.size pop 2 div add
+        mouse getdword 16 shr neg screen.size exch pop 2 div add
+        moveto 4 4 fillrect
+
+        mouse 4 add getdword 7 and
+        dup 1 and { red setcolor } if
+        dup 2 and { blue setcolor } if
+        dup 4 and { green setcolor } if
+
+        3 and 3 eq { exit } if
+
+      } loop
+    } ifelse
+    pop 0
+  } if
+
   dup keyShiftF12 eq {
-    currenttransparency 0x10 add 0x100 min settransparency
+    /transp transp 0x10 add 0x100 min def
     pop 0
   } if
 
@@ -1264,7 +1324,7 @@
 
   dup .title "Cool computer, but..." put
   dup .text
-    "Sorry, but SUSE LINUX 9.2 LiveCD needs at least 256MB main memory."
+    "Sorry, but SUSE LINUX 9.3 LiveCD needs at least 256MB main memory."
   put
   dup .buttons [
     button.reboot button.default actReboot actNoClose or button.setaction
@@ -1348,17 +1408,21 @@
 
 % dtrace 0x11000 cvp getdword pop
 
-/clip.size { 640 480 } def
+/transp 0x30 def
 
-640 480 8 findmode setmode not { false .end } if
-% 800 600 8 findmode setmode not { false .end } if
+% 640 480 8 findmode setmode not { false .end } if
+800 600 16 findmode setmode not { false .end } if
 
-"background.pcx" findfile setimage loadpalette
+% /with_transp vscreen.size exch pop screen.size exch pop div 1 gt colorbits 8 gt and def
+
+/clip.size { screen.size } def
+
+timeout.preinit
+
+"back.jpg" findfile /background.file over def setimage loadpalette
 /max_image_colors image.colors def
 
 % 7 dup 0xffffff setpalette setcolor
-
-bsplash.show
 
 % color & font definitions must be global
 
@@ -1370,14 +1434,20 @@ bsplash.show
 /yellow              0xffff20          newcolor
 % /lightgray           0xececf4          newcolor
 % /lightgray           0x839db6          newcolor
-/lightgray           0xe0e6ed          newcolor
+
+% /lightgray           0xe0e6ed          newcolor
+/lightgray           0xd8deed          newcolor
+
 % /lightgray           0xa9bbcd          newcolor
 /dotcolor            0xa9bbcd          newcolor
 /lightdotcolor       0xeff2f6          newcolor
+% /somegreen           0x738229          newcolor
+/somegreen           0x78a424          newcolor
+
 
 %% include theme_colors.inc
 
-/font.normal "16x16.font" findfile def
+/font.normal "16x16.fnt" findfile def
 /font.large font.normal def
 
 /cmdline.hidden 256 string def
@@ -1387,4 +1457,5 @@ bsplash.show
 
 /debug 0 def
 
+bsplash.show
 

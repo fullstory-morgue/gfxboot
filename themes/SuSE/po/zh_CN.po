@@ -131,10 +131,10 @@ msgstr ""
 #. txt_insert_disk3
 #, c-format
 msgid ""
-"This is not a SUSE LINUX 9.2 Boot Disk.\n"
+"This is not a SUSE LINUX 9.3 Boot Disk.\n"
 "Please insert Boot Disk %u."
 msgstr ""
-"这不是 SUSE LINUX 9.2 引导盘。\n"
+"这不是 SUSE LINUX 9.3 引导盘。\n"
 "请插入引导盘 %u。" 
 
 # password dialog title
@@ -243,6 +243,8 @@ msgstr "HTTP 安装"
 msgid "Driver"
 msgstr "驱动程序" 
 
-
-
+# as in Windows Authentication Domain
+#. txt_domain
+msgid "Domain\n"
+msgstr "域\n" 
 

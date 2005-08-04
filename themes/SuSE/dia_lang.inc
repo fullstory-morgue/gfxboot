@@ -21,6 +21,8 @@
   [ "bn" "Bengali" ]
   [ "bg" "Български" ]
   [ "cs" "Čeština" ]
+  [ "cy_GB" "Welsh" ]
+  [ "ds" "Dansk" ]
   [ "en" "English" ]
   [ "fr" "Français" ]
   [ "de" "Deutsch" ]
@@ -30,17 +32,23 @@
   [ "it" "Italiano" ]
   [ "ja" "日本語" ]
   [ "hu" "Magyar" ]
+  [ "ko" "한글" ]
+  [ "lt" "Lietuvių" ]
   [ "nl" "Nederlands" ]
   [ "nb" "Norsk" ]
   [ "pl" "Polski" ]
-  [ "pt_BR" "Português" ]
+  [ "pt_PT" "Português" ]
+  [ "pt_BR" "Português (Brasil)" ]
+  [ "pa" "Punjabi" ]
   [ "ro" "Romanian" ]
   [ "ru" "Русский" ]
   [ "sk" "Slovenčina" ]
   [ "sl" "Slovenščina" ]
   [ "sv" "Svenska" ]
+  [ "tr" "Türkçe" ]
+  [ "uk" "Українська" ]
   [ "zh_CN" "简体中文" ]
-  [ "zh_TW" "繁體中文" ]
+  [ "zh_TW" "繁體中文 (中國臺灣)" ]
 ] def
 
 
@@ -99,13 +107,15 @@
   /lang.names [
 
     lang.items {
-      dup
 
-      dup length add
-      dup 0 0 put
-      1 add
+      dup dup length add
 
-      dup "" ne { exch pop } { pop lang.getdefname } ifelse
+      dup 0 get {
+        dup 0 0 put 1 add
+        exch pop
+      } {
+        pop lang.getdefname
+      } ifelse
 
     } forall
 

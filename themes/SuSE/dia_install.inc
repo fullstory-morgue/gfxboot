@@ -8,7 +8,7 @@
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % Some global vars.
 %
-/install.last    0 def
+/install.last 0 def
 
 /install.option 255 string def
 
@@ -32,10 +32,14 @@
 
   /xmenu xmenu.install def
 
-  xmenu .xm_current 0 put
+  /install.last usernote 5 shr 1 and def
+
+  install.option install.last .inst_cdrom eq { "" } { "install=slp" } ifelse strcpy
+
+  xmenu .xm_current install.last put
 
   % see install types (.inst_*)
-  xmenu .xm_list [ is_dvd { "DVD" } { "CD-ROM" } ifelse "SLP" "FTP" "HTTP" "NFS" "SMB" txt_harddisk ] put
+  xmenu .xm_list [ is_dvd { "DVD" } { "CD-ROM" } ifelse "SLP" "FTP" "HTTP" "NFS" "SMB / CIFS" /txt_harddisk ] put
 
   pmenu.init
 } def
@@ -52,7 +56,7 @@
   xmenu .xm_current get dup .inst_cdrom eq exch .inst_slp eq or {
     /install.last xmenu .xm_current get def
 
-    install.option install.last .inst_cdrom eq { "" } { "install=slp://" } ifelse strcpy
+    install.option install.last .inst_cdrom eq { "" } { "install=slp" } ifelse strcpy
 
     /window.action actRedrawPanel def
 
@@ -112,122 +116,90 @@
 
   /dia window.dialog def
 
+  dia .text "" put
+
   xmenu .xm_current get
 
   dup .inst_hd eq {
-    input.dialog.hd {
-      /dia input.dialog.hd def
-    } {
-      /input.dialog.hd window.dialog def
-      /dia input.dialog.hd def
+    input.edit.hd .undef eq {
+      /input.edit.hd [ 63 string 127 string ] def
+    } if
 
-      dia .dont_free 1 put
+    dia .title txt_harddisk_title put
 
-      dia .title txt_harddisk_title put
-      dia .text "" put
+    % Must all be of same size!
+    dia .ed.list 2 array put
+    dia .ed.buffer.list input.edit.hd put
+    dia .ed.text.list [ txt_hd_diskdevice txt_directory ] put
 
-      % Must all be of same size!
-      dia .ed.list 2 array put
-      dia .ed.buffer.list [ 63 string 127 string ] put
-      dia .ed.text.list [ txt_hd_diskdevice txt_directory ] put
-
-      dia .ed.focus 0 put
-    } ifelse
   } if
 
   dup .inst_ftp eq {
-    input.dialog.ftp {
-      /dia input.dialog.ftp def
-    } {
-      /input.dialog.ftp window.dialog def
-      /dia input.dialog.ftp def
+    input.edit.ftp .undef eq {
+      /input.edit.ftp [ 63 string 127 string 31 string 31 string ] def
+    } if
 
-      dia .dont_free 1 put
+    dia .title txt_ftp_title put
 
-      dia .title txt_ftp_title put
-      dia .text "" put
+    % Must all be of same size!
+    dia .ed.list 4 array put
+    dia .ed.buffer.list input.edit.ftp put
+    dia .ed.text.list [ txt_server txt_directory txt_user1 txt_password ] put
 
-      % Must all be of same size!
-      dia .ed.list 4 array put
-      dia .ed.buffer.list [ 63 string 127 string 31 string 31 string ] put
-      dia .ed.text.list [ txt_server txt_directory txt_user1 txt_password ] put
+    dia .ed.font font.normal put
+    dia .ed.pw_field 3 put
 
-      dia .ed.font font.normal put
-      dia .ed.pw_field 3 put
-
-      dia .ed.focus 0 put
-    } ifelse
   } if
 
   dup .inst_http eq {
-    input.dialog.http {
-      /dia input.dialog.http def
-    } {
-      /input.dialog.http window.dialog def
-      /dia input.dialog.http def
+    input.edit.http .undef eq {
+      /input.edit.http [ 63 string 127 string ] def
+    } if
 
-      dia .dont_free 1 put
+    dia .title txt_http_title put
 
-      dia .title txt_http_title put
-      dia .text "" put
+    % Must all be of same size!
+    dia .ed.list 2 array put
+    dia .ed.buffer.list input.edit.http put
+    dia .ed.text.list [ txt_server txt_directory ] put
 
-      % Must all be of same size!
-      dia .ed.list 2 array put
-      dia .ed.buffer.list [ 63 string 127 string ] put
-      dia .ed.text.list [ txt_server txt_directory ] put
-
-      dia .ed.focus 0 put
-    } ifelse
   } if
 
   dup .inst_nfs eq {
-    input.dialog.nfs {
-      /dia input.dialog.nfs def
-    } {
-      /input.dialog.nfs window.dialog def
-      /dia input.dialog.nfs def
+    input.edit.nfs .undef eq {
+      /input.edit.nfs [ 63 string 127 string ] def
+    } if
 
-      dia .dont_free 1 put
+    dia .title txt_nfs_title put
 
-      dia .title txt_nfs_title put
-      dia .text "" put
+    % Must all be of same size!
+    dia .ed.list 2 array put
+    dia .ed.buffer.list input.edit.nfs put
+    dia .ed.text.list [ txt_server txt_directory ] put
 
-      % Must all be of same size!
-      dia .ed.list 2 array put
-      dia .ed.buffer.list [ 63 string 127 string ] put
-      dia .ed.text.list [ txt_server txt_directory ] put
-
-      dia .ed.focus 0 put
-    } ifelse
   } if
 
   dup .inst_smb eq {
-    input.dialog.smb {
-      /dia input.dialog.smb def
-    } {
-      /input.dialog.smb window.dialog def
-      /dia input.dialog.smb def
+    input.edit.smb .undef eq {
+      /input.edit.smb [ 63 string 127 string 31 string 31 string 31 string ] def
+    } if
 
-      dia .dont_free 1 put
+    dia .title txt_smb_title put
 
-      dia .title txt_smb_title put
-      dia .text "" put
+    % Must all be of same size!
+    dia .ed.list 5 array put
+    dia .ed.buffer.list input.edit.smb put
+    dia .ed.text.list [ txt_server txt_directory txt_domain txt_user2 txt_password ] put
 
-      % Must all be of same size!
-      dia .ed.list 4 array put
-      dia .ed.buffer.list [ 63 string 127 string 31 string 31 string ] put
-      dia .ed.text.list [ txt_server txt_directory txt_user2 txt_password ] put
+    dia .ed.font font.normal put
+    dia .ed.pw_field 4 put
 
-      dia .ed.font font.normal put
-      dia .ed.pw_field 3 put
-
-      dia .ed.focus 0 put
-    } ifelse
   } if
 
   pop
 
-  dia .ed.width 240 put
+  dia .ed.focus 0 put
+  dia .ed.width 300 put
 
   dia .buttons [
     button.ok button.default actInstallOK actNoClose or button.setaction
@@ -255,14 +227,14 @@
   xmenu .xm_current get
 
   dup .inst_hd eq {
-    input.dialog.hd .ed.buffer.list get
+    input.edit.hd
     dup 1 get dup 0 get '/' eq { 1 add } if
     exch 0 get dup 0 get '/' eq { 1 add } if
     "install=hd://%s/%s" install.option sprintf
   } if
 
   dup .inst_ftp eq {
-    input.dialog.ftp .ed.buffer.list get
+    input.edit.ftp
 
     "install=ftp://" install.option sprintf
 
@@ -279,29 +251,34 @@
   } if
 
   dup .inst_http eq {
-    input.dialog.http .ed.buffer.list get
+    input.edit.http
     dup 1 get dup 0 get '/' eq { 1 add } if
     exch 0 get
     "install=http://%s/%s" install.option sprintf
   } if
 
   dup .inst_nfs eq {
-    input.dialog.nfs .ed.buffer.list get
+    input.edit.nfs
     dup 1 get dup 0 get '/' eq { 1 add } if
     exch 0 get
     "install=nfs://%s/%s" install.option sprintf
   } if
 
   dup .inst_smb eq {
-    input.dialog.smb .ed.buffer.list get
+    input.edit.smb
 
     "install=smb://" install.option sprintf
 
-    % add user name & password
+    % add domain
     dup 2 get "" ne {
-      dup 2 get "%s" install.option dup length add sprintf
-      dup 3 get "" ne {
-        dup 3 get ":%s" install.option dup length add sprintf
+      dup 2 get "%s;" install.option dup length add sprintf
+    } if
+
+    % add user name & password
+    dup 3 get "" ne {
+      dup 3 get "%s" install.option dup length add sprintf
+      dup 4 get "" ne {
+        dup 4 get ":%s" install.option dup length add sprintf
       } if
       "@" install.option dup length add sprintf
     } if
