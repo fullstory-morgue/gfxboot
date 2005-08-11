@@ -1,3 +1,22 @@
+gfxboot (3.1.0-1) unstable; urgency=low
+
+  * New upstream release:
+    - texts updated
+    - support images with alpha channel
+    - new theme
+    - 32 bit modes now fully supported
+    - updated documentation
+    - harddisk install option gone (#60128)
+    - added live cd entry
+    - fixed 16 bit color mode selection (#79312)
+    - taiwan text fix (#78946)
+    - fixed file reading
+  * switch to cdbs autp updating.
+  * enhance gfxboot description.
+  * bump standards version to 3.6.2.
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Thu, 11 Aug 2005 12:26:12 +0200
+
 gfxboot (3.0.15-2) unstable; urgency=low
 
   * change bindir. 
