@@ -10,6 +10,6 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: grub-gfxboot
 Suggests: kanotix-graphics | kanotix64-graphics | kanotixbh-graphics
-Description: gfxboot grub splash creator
+Description: bootlogo creator for gfxboot compliant boot loaders.
  This package is needed to create the graphical boot logos for gfxboot, 
  introduced and developed by SuSE, it is suitable for grub, lilo and syslinux.
