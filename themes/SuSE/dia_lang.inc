@@ -48,7 +48,7 @@
   [ "tr" "Türkçe" ]
   [ "uk" "Українська" ]
   [ "zh_CN" "简体中文" ]
-  [ "zh_TW" "繁體中文 (中國臺灣)" ]
+  [ "zh_TW" "繁體中文 (台灣)" ]
 ] def
 
 
@@ -139,6 +139,8 @@
 
   xmenu .xm_current lang.default put
   xmenu .xm_list lang.names put
+
+  xmenu .xm_title /txt_language put
 
   % make menu smaller if there are more than 19 language entries
   lang.items length 19 gt {

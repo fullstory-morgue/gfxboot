@@ -1,3 +1,32 @@
+5/8/2005:	v3.1.0
+	- support images with alpha channel
+	- new theme
+
+27/7/2005:	v3.0.23
+	- texts updated
+
+23/6/2005:	v3.0.22
+	- 32 bit modes now fully supported
+
+22/6/2005:	v3.0.21
+	- updated documentation
+
+26/4/2005:	v3.0.20
+	- harddisk install option gone (#60128)
+	- syslinux updated for testing
+
+22/4/2005:	v3.0.19
+	- fixed 16 bit color mode selection (#79312)
+
+21/4/2005:	v3.0.18
+	- added live cd entry
+
+20/4/2005:	v3.0.17
+	- taiwan text fix (#78946)
+
+11/4/2005:	v3.0.16
+	- fixed file reading
+
 21/3/2005:	v3.0.15
 	- added slowenic translations
 

@@ -1,5 +1,7 @@
 BINDIR      := $(shell [ -x ../../mkbootmsg ] && echo ../../ )
 
+PRODUCT      = "SUSE Linux 10.0"
+
 HELP2TXT     = $(BINDIR)help2txt
 MKBOOTMSG    = $(BINDIR)mkbootmsg
 BFLAGS       = -O -v -L ../..
@@ -13,16 +15,18 @@ HELPINST_ALL = $(notdir $(HELPINST))
 
 DEFAULT_LANG =
 
-FILES_INST   = init languages $(TRANSLATIONS) 16x16.fnt back.jpg \
-	       splash.jpg greeting.jpg dots.jpg kroete.dat \
-	       $(HELPINST_ALL)
+PIC_COMMON   = back.jpg head{.jpg,_a.pcx} {l,r,v}dots{.jpg,_a.pcx}
+PIC_INSTALL  = greeting.jpg
 
-FILES_BOOT   = init languages $(TRANSLATIONS) 16x16.fnt back.jpg \
-	       dots.jpg $(HELPBOOT_ALL)
+FILES_INST   = init languages $(TRANSLATIONS) 16x16.fnt kroete.dat \
+	       $(PIC_COMMON) $(PIC_INSTALL) $(HELPINST_ALL)
 
-FILES_BOOT_EN = init languages en.tr 16x16.fnt back.jpg dots.jpg en.hlp
+FILES_BOOT   = init languages $(TRANSLATIONS) 16x16.fnt \
+	       $(PIC_COMMON) $(HELPBOOT_ALL)
 
-INST_EXT     = 16x16.fnt back.jpg splash.jpg greeting.jpg dots.jpg kroete.dat *.hlp *.tr
+FILES_BOOT_EN = init languages en.tr 16x16.fnt $(PIC_COMMON) en.hlp
+
+INST_EXT     = 16x16.fnt $(PIC_COMMON) $(PIC_INSTALL) kroete.dat *.hlp *.tr
 
 ifdef DEFAULT_LANG
 FILES_INST += lang
@@ -31,10 +35,10 @@ FILES_BOOT_EN += lang $(DEFAULT_LANG).tr $(DEFAULT_LANG).hlp
 endif
 
 boot/%.hlp: help-boot.%.html boot
-	$(HELP2TXT) $< >$@
+	$(HELP2TXT) --product=$(PRODUCT) $< >$@
 
 install/%.hlp: help-install.%.html install
-	$(HELP2TXT) $< >$@
+	$(HELP2TXT) --product=$(PRODUCT) $< >$@
 
 .PHONY: all themes font clean po
 
