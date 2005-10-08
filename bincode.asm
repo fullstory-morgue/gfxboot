@@ -3975,6 +3975,52 @@ get_time:
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
+; Convert 8 bit bcd to binary.
+;
+;  al		bcd
+;
+; return
+;  ax		binary
+;
+bcd2bin:
+		push dx
+		mov dl,al
+		shr al,4
+		and dl,0fh
+		mov ah,10
+		mul ah
+		add al,dl
+		pop dx
+		ret
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
+get_date:
+		clc
+		mov ah,4
+		int 1ah
+		jnc get_date_10
+		xor dx,dx
+		xor cx,cx
+get_date_10:
+		mov al,ch
+		call bcd2bin
+		imul bx,ax,100
+		mov al,cl
+		call bcd2bin
+		add bx,ax
+		shl ebx,16
+		mov al,dh
+		call bcd2bin
+		mov bh,al
+		mov al,dl
+		call bcd2bin
+		add bx,ax
+		mov eax,ebx
+		ret
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
 ; Set console cursor position.
 ;
 ;  dh		row
@@ -6668,6 +6714,7 @@ prim_setcolor:
 ;
 prim_currentcolor:
 		mov eax,[gfx_color0]
+		call decode_color
 		jmp pr_getint
 
 
@@ -6937,11 +6984,11 @@ prim_currentimage:
 
 ;; settransparency - set transparency
 ;
-; group: blend
+; group: draw
 ;
 ; ( int1 -- )
 ;
-; int1: transparency for @blend and @blend2 operations; valid values are 0 - 256.
+; int1: transparency for @fillrect operations; valid values are 0 - 256.
 ;
 prim_settransparency:
 		call pr_setint
@@ -6951,7 +6998,7 @@ prim_settransparency:
 
 ;; currenttransparency - current transparency
 ;
-; group: blend
+; group: draw
 ;
 ; ( -- int1 )
 ;
@@ -8989,6 +9036,7 @@ prim_settextcolors:
 		stc
 		mov bp,pserr_wrong_arg_types
 		jnz prim_settextcolors_90
+		call encode_color
 		mov [gfx_color0],eax
 		mov [gfx_color],eax
 		mov cx,2
@@ -8998,6 +9046,7 @@ prim_settextcolors:
 		cmp dl,t_int
 		stc
 		jnz prim_settextcolors_90
+		call encode_color
 		mov [gfx_color1],eax
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -9005,8 +9054,11 @@ prim_settextcolors:
 
 		sub word [pstack_ptr],byte 4
 
-		mov [gfx_color2],ecx
+		call encode_color
 		mov [gfx_color3],eax
+		mov eax,ecx
+		call encode_color
+		mov [gfx_color2],eax
 
 		clc
 prim_settextcolors_90:
@@ -9033,18 +9085,22 @@ prim_currenttextcolors:
 		mov [pstack_ptr],ax
 		mov dl,t_int
 		mov eax,[gfx_color3]
+		call decode_color
 		xor cx,cx
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color2]
+		call decode_color
 		mov cx,1
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color1]
+		call decode_color
 		mov cx,2
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color0]
+		call decode_color
 		mov cx,3
 		call set_pstack_tos
 prim_currenttextcolors_90:
@@ -9334,6 +9390,19 @@ prim_time:
 		jmp pr_getint
 
 
+;; date - get current date
+;
+; group: system
+;
+; ( -- int1 )
+;
+; int1: date (bit 0-7: day, bit 8-15: month, bit 16-31: year)
+;
+prim_date:
+		call get_date
+		jmp pr_getint
+
+
 ;; setbrightness - set brightness
 ;
 ; group: image
@@ -9472,97 +9541,7 @@ prim_keepmode:
 		ret
 
 
-;; blend -- blend two images together
-;
-; group: image
-;
-; ( ptr1 ptr2 -- )
-;
-; ptr1: source
-; ptr2: destination
-;
-; ptr2 is merged with a screen area from ptr1 using the current cursor
-; position as offset into ptr1. Transparency values (@settransparency) can
-; range from 0 (ptr2 is unchanged) to 256 (ptr2 is ptr1).
-;
-; Note: 16/32-bit modes only.
-;
-prim_blend:
-		mov dx,t_ptr + (t_ptr << 8)
-		call get_2args
-		jnc prim_blend_20
-		cmp dx,t_ptr + (t_none << 8)
-		jz prim_blend_20
-		cmp dx,t_none + (t_ptr << 8)
-		jz prim_blend_20
-		cmp dx,t_none + (t_none << 8)
-		jz prim_blend_20
-		stc
-		jmp prim_blend_90
-prim_blend_20:
-		sub word [pstack_ptr],2
-
-		; ecx + eax -> eax
-
-		lin2seg eax,es,edi
-		lin2seg ecx,fs,esi
-
-		call blend
-
-		call lin_seg_off
-
-		clc
-
-prim_blend_90:
-		ret
-
-
-;; blend2 -- blend two images together, but differently
-;
-; group: image
-;
-; ( ptr1 ptr2 -- )
-;
-; ptr1: source
-; ptr2: destination
-;
-; The current color is blended into ptr2 using a screen area of ptr1 (using
-; the current cursor position as offset into ptr1) as transparency values.
-; Transparency values range from 0 (ptr2 unchanged) to 256 (current color).
-;
-; Note: 16/32-bit modes only.
-;
-prim_blend2:
-		mov dx,t_ptr + (t_ptr << 8)
-		call get_2args
-		jnc prim_blend2_20
-		cmp dx,t_ptr + (t_none << 8)
-		jz prim_blend2_20
-		cmp dx,t_none + (t_ptr << 8)
-		jz prim_blend2_20
-		cmp dx,t_none + (t_none << 8)
-		jz prim_blend2_20
-		stc
-		jmp prim_blend2_90
-prim_blend2_20:
-		sub word [pstack_ptr],2
-
-		; ecx + eax -> eax
-
-		lin2seg eax,es,edi
-		lin2seg ecx,fs,esi
-
-		call blend2
-
-		call lin_seg_off
-
-		clc
-
-prim_blend2_90:
-		ret
-
-
-;; blend3 -- blend image with alpha channel
+;; blend -- blend image with alpha channel
 ;
 ; group: image
 ;
@@ -9580,53 +9559,56 @@ prim_blend2_90:
 ;
 ; Note: 16/32-bit modes only.
 ;
-prim_blend3:
+prim_blend:
 		mov bp,pserr_pstack_underflow
 		cmp word [pstack_ptr],byte 3
-		jc prim_blend3_90
+		jc prim_blend_90
 
 		and dword [tmp_var_0],0
 
 		mov cx,2
 		call get_pstack_tos
 		cmp dl,t_none
-		jnz prim_blend3_21
+		jnz prim_blend_21
 		xor eax,eax
 		mov dl,t_int
-prim_blend3_21:
+prim_blend_21:
 		cmp dl,t_ptr
-		jz prim_blend3_23
+		jz prim_blend_23
 		or byte [tmp_var_0],1
 		cmp dl,t_int
-		jz prim_blend3_23
-prim_blend3_22:
+		jz prim_blend_23
+prim_blend_22:
 		stc
 		mov bp,pserr_wrong_arg_types
-		jmp prim_blend3_90
-prim_blend3_23:
+		jmp prim_blend_90
+prim_blend_23:
 		mov [tmp_var_1],eax
 
 		mov cx,1
 		call get_pstack_tos
 		cmp dl,t_none
-		jnz prim_blend3_31
+		jnz prim_blend_31
 		xor eax,eax
 		mov dl,t_int
-prim_blend3_31:
+prim_blend_31:
 		cmp dl,t_ptr
-		jz prim_blend3_33
+		jz prim_blend_33
 		or byte [tmp_var_0],2
 		cmp dl,t_int
-		jnz prim_blend3_22
-prim_blend3_33:
+		jnz prim_blend_22
+prim_blend_33:
 		mov [tmp_var_2],eax
 
 		xor cx,cx
 		call get_pstack_tos
 		cmp dl,t_none
-		jz prim_blend3_90
+		jnz prim_blend_35
+		sub word [pstack_ptr],3
+		jmp prim_blend_85
+prim_blend_35:
 		cmp dl,t_ptr
-		jnz prim_blend3_22
+		jnz prim_blend_22
 
 		mov [tmp_var_3],eax
 
@@ -9642,36 +9624,37 @@ prim_blend3_33:
 
 		mov al,[tmp_var_0]
 		test al,1
-		jnz prim_blend3_40
+		jnz prim_blend_40
 		lin2seg esi,fs,esi
-prim_blend3_40:
+prim_blend_40:
 		test al,2
-		jnz prim_blend3_50
+		jnz prim_blend_50
 		lin2seg ebx,gs,ebx
-prim_blend3_50:
+prim_blend_50:
 		or al,al
-		jnz prim_blend3_60
+		jnz prim_blend_60
 
 		; check image domensions
 		mov ecx,[fs:esi]
 		cmp ecx,[gs:ebx]
-		jz prim_blend3_60
+		jz prim_blend_60
 
 		call lin_seg_off
 
-		jmp prim_blend3_22
-prim_blend3_60:
+		jmp prim_blend_22
+prim_blend_60:
 
 		lin2seg dword [tmp_var_3],es,edi
 
 		; invalidates tmp_var_*
-		call blend3
+		call blend
 
 		call lin_seg_off
 
+prim_blend_85:
 		clc
 
-prim_blend3_90:
+prim_blend_90:
 		ret
 
 
@@ -9749,203 +9732,6 @@ pr_setobj_30:
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
-;  fs:esi		src image
-;  es:edi		dst image
-;  dword [transp]	transparency (0-256, 0: result = dst, 256: result = src)
-;  word [gfx_cur_x]	ofs of dst relative to src
-;  word [gfx_cur_y]	dto
-;
-blend:
-		cmp dword [transp],0
-		jz blend_90
-
-		cmp byte [pixel_bytes],2
-		jz blend_10
-		cmp byte [pixel_bytes],4
-		jnz blend_90
-
-blend_10:
-
-		movzx ebp,word [fs:esi]		; width
-
-		add esi,4
-
-		movzx eax,word [gfx_cur_y]
-		mul ebp
-		movzx ecx,word [gfx_cur_x]
-		add eax,ecx
-		imul eax,[pixel_bytes]
-		add esi,eax
-
-		mov ebx,4
-
-		mov cx,[es:edi+2]
-
-blend_20:
-		push cx
-
-		mov dx,[es:edi]
-
-		cmp byte [pixel_bytes],2
-		jnz blend_60
-
-blend_40:
-		; 16 bit
-		mov ax,[fs:esi]
-
-		call decode_color
-		xchg eax,ecx
-		mov ax,[es:edi+ebx]
-		call decode_color
-		call enc_transp
-		call encode_color
-
-		mov [es:edi+ebx],ax
-		add esi,[pixel_bytes]
-		add ebx,[pixel_bytes]
-
-		dec dx
-		jnz blend_40
-		jmp blend_70
-
-blend_60:
-		; 32 bit
-		mov eax,[fs:esi]
-
-		; call decode_color
-		xchg eax,ecx
-		mov eax,[es:edi+ebx]
-		; call decode_color
-		call enc_transp
-		; call encode_color
-
-		mov [es:edi+ebx],eax
-		add esi,4
-		add ebx,4
-
-		dec dx
-		jnz blend_60
-
-blend_70:
-
-		pop cx
-
-		movzx eax,word [es:edi]
-		sub eax,ebp
-		imul eax,[pixel_bytes]
-		sub esi,eax
-
-		dec cx
-		jnz blend_20
-
-blend_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-;  fs:esi		src image
-;  es:edi		dst image
-;  dword [transp]	transparency (0-256, 0: result = src, 256: result = dst)
-;  word [gfx_cur_x]	ofs of dst relative to src
-;  word [gfx_cur_y]	dto
-;
-blend2:
-		push dword [transp]
-
-		cmp byte [pixel_bytes],2
-		jz blend2_10
-		cmp byte [pixel_bytes],4
-		jnz blend2_90
-
-blend2_10:
-
-		movzx ebp,word [fs:esi]		; width
-
-		add esi,4
-
-		movzx eax,word [gfx_cur_y]
-		mul ebp
-		movzx ecx,word [gfx_cur_x]
-		add eax,ecx
-		imul eax,[pixel_bytes]
-		add esi,eax
-
-		mov ebx,4
-
-		mov cx,[es:edi+2]
-
-blend2_20:
-		push cx
-
-		mov dx,[es:edi]
-
-		cmp byte [pixel_bytes],2
-		jnz blend2_60
-
-blend2_40:
-		; 16 bit
-		mov ax,[fs:esi]
-
-		call decode_color
-		movzx eax,ah
-		mov [transp],eax
-		mov ecx,[gfx_color_rgb]
-
-		mov ax,[es:edi+ebx]
-		call decode_color
-		call enc_transp
-		call encode_color
-
-		mov [es:edi+ebx],ax
-		add esi,[pixel_bytes]
-		add ebx,[pixel_bytes]
-
-		dec dx
-		jnz blend2_40
-		jmp blend2_70
-
-blend2_60:
-		; 32 bit
-		mov eax,[fs:esi]
-
-		; call decode_color
-		movzx eax,ah
-		mov [transp],eax
-		mov ecx,[gfx_color_rgb]
-
-		mov eax,[es:edi+ebx]
-		; call decode_color
-		call enc_transp
-		; call encode_color
-
-		mov [es:edi+ebx],eax
-		add esi,4
-		add ebx,4
-
-		dec dx
-		jnz blend2_60
-
-blend2_70:
-
-		pop cx
-
-		movzx eax,word [es:edi]
-		sub eax,ebp
-		imul eax,[pixel_bytes]
-		sub esi,eax
-
-		dec cx
-		jnz blend2_20
-
-blend2_90:
-		pop dword [transp]
-
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ;  al			arg type; bit 0, 1: src, alpha is int (1) or ptr (0)
 ;  fs:esi		src
 ;  gs:ebx		alpha
@@ -9953,24 +9739,24 @@ blend2_90:
 ;  word [gfx_cur_x]	offset into src
 ;  word [gfx_cur_y]	dto
 ;
-blend3:
+blend:
 		push dword [transp]
 
 		cmp byte [pixel_bytes],2
-		jz blend3_10
+		jz blend_10
 		cmp byte [pixel_bytes],4
-		jnz blend3_90
+		jnz blend_90
 
-blend3_10:
+blend_10:
 		mov ebp,[es:edi]
 		test al,2
-		jnz blend3_12
+		jnz blend_12
 		mov ebp,[gs:ebx]
-blend3_12:
+blend_12:
 		test al,1
-		jnz blend3_14
+		jnz blend_14
 		mov ebp,[fs:esi]
-blend3_14:
+blend_14:
 
 		mov [tmp_var_0],al
 		mov [tmp_var_1],ebp		; width, height (src)
@@ -9993,21 +9779,21 @@ blend3_14:
 		add eax,4
 
 		test byte [tmp_var_0],1
-		jnz blend3_16
+		jnz blend_16
 		add esi,eax
-blend3_16:
+blend_16:
 		test byte [tmp_var_0],2
-		jnz blend3_17
+		jnz blend_17
 		add ebx,eax
-blend3_17:
+blend_17:
 
 		add edi,4
 
 		mov edx,blend_pixel_16
 		cmp byte [pixel_bytes],2
-		jz blend3_18
+		jz blend_18
 		mov edx,blend_pixel_32
-blend3_18:
+blend_18:
 		movzx ecx,byte [tmp_var_0]
 		and cl,3
 		push dword [edx+ecx*4]
@@ -10015,12 +9801,12 @@ blend3_18:
 
 		mov cx,[tmp_var_2 + 2]		; dst height
 
-blend3_20:
+blend_20:
 		push cx
 
 		mov dx,[tmp_var_2]		; dst width
 
-blend3_40:
+blend_40:
 		call [blend_pixel]
 
 		add esi,[pixel_bytes]
@@ -10028,7 +9814,7 @@ blend3_40:
 		add edi,[pixel_bytes]
 
 		dec dx
-		jnz blend3_40
+		jnz blend_40
 
 		pop cx
 
@@ -10040,9 +9826,9 @@ blend3_40:
 		sub ebx,eax
 
 		dec cx
-		jnz blend3_20
+		jnz blend_20
 
-blend3_90:
+blend_90:
 		pop dword [transp]
 
 		ret

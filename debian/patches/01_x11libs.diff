@@ -2,7 +2,7 @@
 +++ Makefile	2005-04-16 18:16:53.789423384 +0200
 @@ -1,6 +1,6 @@
  CC	 = gcc
- CFLAGS	 = -g -Wall -O2 -fomit-frame-pointer
+ CFLAGS	 = -g -Wall -Wno-pointer-sign -O2 -fomit-frame-pointer
 -X11LIBS	 = /usr/X11/lib
 +X11LIBS	 = /usr/X11R6/lib
  THEMES	 = $(wildcard themes/*)

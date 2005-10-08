@@ -2,7 +2,7 @@ Source: gfxboot
 Section: utils
 Priority: optional
 Maintainer: Stefan Lippers-Hollmann <s.l-h@gmx.de>
-Build-Depends: @cdbs@, xlibs-dev, nasm
+Build-Depends: @cdbs@, xlibs-dev, nasm, xmlto
 Standards-Version: 3.6.2
 
 Package: gfxboot

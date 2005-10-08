@@ -6,6 +6,12 @@ sub nospaces;
 
 $opt_product = "SUSE Linux";
 
+%help_key_rename = (
+  'F2' => 'F3',
+  'F3' => 'F4',
+  'F4' => 'F2',
+);
+
 GetOptions(
   'product=s' => \$opt_product
 );
@@ -17,6 +23,10 @@ if(!@ARGV) {
 }
 
 while(<>) {
+  if(/^\xef\xbb\xbf/) {
+    print STDERR "BOM in line $. found\n";
+  }
+
   s/\s*<\/?(hr|body|html|h\d+)\s*>//gi;
   if(/<!--\s*help=(\S+)\s*-->/) {
     $helptype = $1;
@@ -53,6 +63,9 @@ $txt =~ s/\s*<br>\s*/\n/sgi;
 $txt =~ s/<!(\d+)>/" " x $1/seg;
 $txt =~ s/(\x14.*?\x10)\s*/$1/sg;
 $txt =~ s/\s*(\x04|$)/$1/sg;
+
+# FIXME: drop after 10.0
+$txt =~ s/(\bF[234]\b)/$help_key_rename{$1}/sg if $helptype eq 'install';
 
 print $txt, "\x00";
 
@@ -95,4 +108,5 @@ sub nospaces
 
   $_
 }
+
 
