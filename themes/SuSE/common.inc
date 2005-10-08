@@ -121,6 +121,24 @@
     500 20 moveto dup print "  " print
   } if
 
+  ptheme {
+    % reverse direction
+    /p.xmas.dx p.xmas.dx neg def
+
+    key keyF9 eq
+    key keyF7 eq or {
+      % call super penguin
+      p.call.super
+    } {
+      key keyF1 ge
+      key keyF10 le and {
+        % read something
+        /p.read.timer rand 0x31 and neg -30 add def
+      } if
+    } ifelse
+
+  } if
+
   % some special keys
   debug.input
 
@@ -613,7 +631,7 @@
   menu.status {
     menu.bar.color setcolor
     currenttransparency
-    70 settransparency
+    ptheme { 120 } { 70 } ifelse settransparency
     menu.bar.width menu.bar.height
     fillrect
     settransparency
@@ -1028,41 +1046,99 @@
 } def
 
 
-% ( pic pic_a x y -- )
-/showlogo {
-  4 2 roll  
-
-  findfile setimage 0 0 image.size unpackimage /tmp.pic.a exch def
-  findfile setimage 0 0 image.size unpackimage /tmp.pic exch def
-
-  exch screen.size 4 -1 roll mul 10 shr 3 1 roll mul 10 shr exch moveto
-
-  /tmp.sc image.size savescreen def
-
-  currentpoint
-  0 0 moveto tmp.pic tmp.pic.a tmp.sc blend3
-  moveto tmp.sc restorescreen
-
-  tmp.pic tmp.pic.a tmp.sc free free free
+% ( img ) => ( width heigh )
+/imgsize {
+  dup .undef eq {
+    pop 0 0
+  } {
+    getdword dup
+    0xffff and exch 16 shr
+  } ifelse
 } def
 
+
+% ( pic pic_a -- )
+/showlogo {
+  /tmp.sc over imgsize savescreen def
+
+  currentpoint 4 2 roll
+  0 0 moveto tmp.sc blend
+  moveto tmp.sc restorescreen
+
+  tmp.sc free
+} def
+
+
+% ( file_name ) ==> ( image )
+/readimage {
+  findfile dup setimage 0 0 image.size unpackimage exch free
+} def
 
 
 /init {
   0 0 moveto currentpoint clip.size image
 
-  screen.size exch 300 mul 10 shr /head.x exch def 371 mul 10 shr /head.y exch def
+  ptheme {
+    /head.x 31 def
+    /head.y 23 def
+  } {
+    small_layout {
+      /head.x 70 def
+      /head.y 173 def
+    } {
+      /head.x 234 def
+      /head.y 217 def
+    } ifelse
+  } ifelse
 
   timeout.init
 
   currentimage
 
-  "rdots.jpg" "rdots_a.pcx" 780 0 showlogo
-  "vdots.jpg" "vdots_a.pcx" 500 240 showlogo
-  "ldots.jpg" "ldots_a.pcx" 0 940 showlogo
-  "head.jpg" "head_a.pcx" 300 371 showlogo
+  ptheme {
+    /rdots "rdots.jpg" readimage def
+    /rdots_a "rdots_a.jpg" readimage def
+    /phead "phead.jpg" readimage def
+    /phead_a "head_a.jpg" readimage def
+
+      570   0 moveto rdots rdots_a showlogo
+       31  23 moveto phead phead_a showlogo
+
+    rdots free rdots_a free
+    phead free phead_a free
+  } {
+
+    /rdots "rdots.jpg" readimage def
+    /rdots_a "rdots_a.jpg" readimage def
+    /vdots "vdots.jpg" readimage def
+    /vdots_a "vdots_a.jpg" readimage def
+    /ldots "ldots.jpg" readimage def
+    /ldots_a "ldots_a.jpg" readimage def
+    /head "head.jpg" readimage def
+    /head_a "head_a.jpg" readimage def
+
+    small_layout {
+      450   0 moveto rdots rdots_a showlogo
+      206 103 moveto vdots vdots_a showlogo
+        0 440 moveto ldots ldots_a showlogo
+       70 173 moveto head  head_a  showlogo
+    } {
+      609   0 moveto rdots rdots_a showlogo
+      390 140 moveto vdots vdots_a showlogo
+        0 550 moveto ldots ldots_a showlogo
+      234 217 moveto head  head_a  showlogo
+    } ifelse
+
+    rdots free rdots_a free
+    vdots free vdots_a free
+    ldots free ldots_a free
+    head free head_a free
+
+  } ifelse
 
   setimage
+
+  ptheme { ptheme.init } if
 
   % set default language
   "lang" findfile dup {
@@ -1083,7 +1159,7 @@
 
   /menu.text.xofs      10 def
   /menu.text.yofs       2 def
-  /menu.item.height    fontheight dup 3 div add def
+  /menu.item.height    fontheight dup ptheme { 2 } { 3 } ifelse div add def
   /menu.bar.height     fontheight menu.text.yofs dup add add def
 
   font.normal setfont
@@ -1097,11 +1173,16 @@
 
   /menu.bar.color      white       def
 
-  /frame1.pos  { 100  90 } def
-  /frame1.size { 325 195 } def
-
-  clip.size pop 800 eq {
+  small_layout {
+    /frame1.pos  { 250 150 } def
+    /frame1.size { 365 195 } def
+  } {
     /frame1.pos  { 415 192 } def
+    /frame1.size { 365 195 } def
+  } ifelse
+
+  ptheme {
+    /frame1.pos  { 210 170 } def
     /frame1.size { 365 195 } def
   } if
 
@@ -1117,7 +1198,7 @@
 
   /boot.label.len 243 def
 
-  /boot.pos { boot.label.len 10 add 490 } def
+  /boot.pos { boot.label.len 10 add ptheme { 480 } { small_layout { 380 } { 490 } ifelse } ifelse } def
 
   /boot.buf.size 256 def
   /boot.buf boot.buf.size string def
@@ -1129,7 +1210,10 @@
   /ms.up       {   0 480 }  def
   /ms.down     {  23 480 }  def
 
-  /update.pos { clip.size pop txt_dud_ready strsize pop sub 20 sub clip.size exch pop 75 sub } def
+  /update.pos {
+    clip.size pop txt_dud_ready strsize pop sub ptheme { 60 } { 20 } ifelse sub
+    clip.size exch pop ptheme { 100 } { 75 } ifelse sub
+  } def
 
 } def
 
@@ -1229,7 +1313,7 @@
     pop 0
   } if
 
-  dup keyF12 eq {
+  dup keyF12 eq debug 3 ge and {
     % mouse support testing
 
     1 keepmode
@@ -1366,7 +1450,7 @@
 
   dup .title "Cool computer, but..." put
   dup .text
-    "Sorry, but SUSE LINUX 9.3 LiveCD needs at least 256MB main memory."
+    "Sorry, but SUSE LINUX 10.0 LiveCD needs at least 256MB main memory."
   put
   dup .buttons [
     button.reboot button.default actReboot actNoClose or button.setaction
@@ -1448,21 +1532,55 @@
 % Global variables.
 %
 
-% dtrace 0x11000 cvp getdword pop
+/ptheme false def
+
+syslinux {
+  rand pop rand 4 shr 11 div 0xffff and
+    date weekday 5 lt { 15 } { 3 } ifelse
+    date month dup 12 eq exch 1 eq or { 1 add 2 div } if
+  mod 0 eq
+
+  date
+  dup 0x7d50c18 ge over 0x7d60101 le and
+  dup 0x7d50c12 eq or
+  dup 0x7d50c0b eq or
+  dup 0x7d50c06 eq or
+  dup 0x7d50c04 eq or
+  dup 0x7d50b1b eq or
+  exch pop or
+
+  0x417 cvp getbyte 0x40 and 0 ne or
+  {
+    /ptheme true def
+  } if
+
+} if
 
 /transp 0x30 def
 
-% 640 480 8 findmode setmode not { false .end } if
-% 1024 768 32 findmode setmode not { false .end } if
+/testX { 0x417 cvp getbyte 0x10 and 0 ne } def
+
+testX { /ptheme false def } if
+
 800 600 16 findmode setmode not {
-  800 600 32 findmode setmode not { false .end } if
+  800 600 32 findmode setmode not {
+    640 480 16 findmode setmode not {
+      640 480 32 findmode setmode not {
+        false .end
+      } if
+    } if
+  } if
 } if
 
 % /with_transp vscreen.size exch pop screen.size exch pop div 1 gt colorbits 8 gt and def
 
 /clip.size { screen.size } def
 
-"back.jpg" findfile /background.file over def setimage loadpalette
+/small_layout screen.size pop 640 eq def
+
+ptheme { "pback.jpg" } { "back.jpg" } ifelse findfile
+dup .undef eq ptheme and { pop "back.jpg" findfile /ptheme false def } if
+/background.file over def setimage loadpalette
 /max_image_colors image.colors def
 
 % 7 dup 0xffffff setpalette setcolor
@@ -1494,5 +1612,9 @@
 
 /debug 0 def
 
-bsplash.show
+ptheme small_layout or {
+  /bsplash.done { } def
+} {
+  bsplash.show
+} ifelse
 

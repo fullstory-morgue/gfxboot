@@ -21,13 +21,14 @@
   [ "bn" "Bengali" ]
   [ "bg" "Български" ]
   [ "cs" "Čeština" ]
-  [ "cy_GB" "Welsh" ]
-  [ "ds" "Dansk" ]
+  [ "cy_GB" "Cymraeg" ]
+  [ "da" "Dansk" ]
   [ "en" "English" ]
   [ "fr" "Français" ]
   [ "de" "Deutsch" ]
   [ "es" "Español" ]
   [ "el" "Ελληνικά" ]
+  [ "fi" "Suomi" ]
   [ "he" "תירבע" ]
   [ "it" "Italiano" ]
   [ "ja" "日本語" ]
@@ -40,10 +41,11 @@
   [ "pt_PT" "Português" ]
   [ "pt_BR" "Português (Brasil)" ]
   [ "pa" "Punjabi" ]
-  [ "ro" "Romanian" ]
+  [ "ro" "Română" ]
   [ "ru" "Русский" ]
   [ "sk" "Slovenčina" ]
   [ "sl" "Slovenščina" ]
+  [ "sr" "Cрпски" ]
   [ "sv" "Svenska" ]
   [ "tr" "Türkçe" ]
   [ "uk" "Українська" ]
@@ -143,9 +145,9 @@
   xmenu .xm_title /txt_language put
 
   % make menu smaller if there are more than 19 language entries
-  lang.items length 19 gt {
-    xmenu .xm_vspace 1 put
-  } if
+  %lang.items length 19 gt {
+  %  xmenu .xm_vspace 2 put
+  %} if
 
   % start with current lang
 
