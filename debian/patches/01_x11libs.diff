@@ -1,9 +1,14 @@
---- Makefile.orig	2005-04-16 18:16:15.267279640 +0200
-+++ Makefile	2005-04-16 18:16:53.789423384 +0200
-@@ -1,6 +1,6 @@
+--- Makefile.orig	2005-12-31 02:45:50.781855500 +0100
++++ Makefile	2005-12-31 02:46:10.523089250 +0100
+@@ -2,11 +2,7 @@ ARCH    := $(shell uname -m)
+ 
  CC	 = gcc
  CFLAGS	 = -g -Wall -Wno-pointer-sign -O2 -fomit-frame-pointer
+-ifeq "$(ARCH)" "x86_64"
+-X11LIBS	 = /usr/X11/lib64
+-else
 -X11LIBS	 = /usr/X11/lib
+-endif
 +X11LIBS	 = /usr/X11R6/lib
  THEMES	 = $(wildcard themes/*)
  # LIBFILES = happysuse.mod system.inc
