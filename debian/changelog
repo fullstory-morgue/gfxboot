@@ -1,12 +1,12 @@
 gfxboot (3.2.6-1) unstable; urgency=low
 
-  * (NOT RELEASED YET) New upstream release
+  * New upstream release
   * remove cdbs auto-update feature.
   * adapt build-deps for X.org 6.9/ 7.0.
   * adapt debian/patches/01_x11libs.diff for upstream changes (debian-amd64 is
     pure64).
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sat, 31 Dec 2005 03:06:10 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sat, 31 Dec 2005 03:07:52 +0100
 
 gfxboot (3.2.0-1) unstable; urgency=low
 
