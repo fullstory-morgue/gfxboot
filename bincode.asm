@@ -105,6 +105,7 @@ pserr_invalid_image_size	equ 0dh
 pserr_no_memory			equ 0eh
 pserr_invalid_data		equ 0fh
 pserr_nop			equ 10h
+pserr_invalid_function		equ 11h
 pserr_invalid_dict_entry	equ 200h
 pserr_invalid_prim		equ 201h
 
@@ -155,7 +156,7 @@ malloc.end		dd 0
 malloc.area		times malloc.areas * 2 dd 0
 
 vbe_buffer		dd 0		; (seg:ofs) buffer for vbe calls
-vbe_mode_list		dd 0		; (seg:ofs) list with vbe modes
+vbe_mode_list		dd 0		; (seg:ofs) list with (up to 100h) vbe modes
 infobox_buffer		dd 0		; (lin) temp buffer for InfoBox messages
 
 local_stack		dd 0		; (seg:ofs) local stack (8k)
@@ -636,11 +637,11 @@ gfx_init_20:
 		mov es,[boot_cs]
 		mov bx,[boot_sysconfig]
 		mov si,malloc.area + 8
-		cmp byte [es:bx],1
+		cmp byte [es:bx],1		; syslinux
 		jnz gfx_init_30
-		mov cx,2
+		mov cx,2			; 2 extended mem areas
 gfx_init_24:
-		mov ax,[es:bx+24]
+		mov ax,[es:bx+24]		; extended mem area pointer
 		or ax,ax
 		jz gfx_init_26
 		movzx edx,ax
@@ -761,6 +762,8 @@ gfx_init_40:
 		push eax
 		call lin2so
 		pop dword [vbe_mode_list]
+		; fill list
+		call get_vbe_modes
 
 		; get console font
 		call cfont_init
@@ -2896,8 +2899,6 @@ set_mode_20:
 		pop di
 		cmp ax,4fh
 		jnz set_mode_80
-		push word [es:di+12h]
-		pop word [screen_mem]
 		mov ax,4f01h
 		mov cx,[gfx_mode]
 		push di
@@ -3046,29 +3047,20 @@ mode_init_90:
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
-; Find graphics mode.
+; Get VBE mode list.
 ;
-;  edx		width
-;  ecx		height
-;  eax		color bits
 ;  [vbe_buffer]	buffer for vbe info
 ;
 ; return:
-;  eax		mode number
-;  CF		1 = not found
+;  [vbe_mode_list]	mode list, last entry is 0xffff
+;  [screen_mem]		video memory size
 ;
-find_mode:
+get_vbe_modes:
 		push es
-
-		mov [tmp_write_data],dx
-		mov [tmp_write_data+2],cx
-		mov [tmp_write_data+4],ax
 
 		lfs si,[vbe_mode_list]
 		cmp word [fs:si],0
-		jnz find_mode_40
-
-		; ok, get list first
+		jnz get_vbe_modes_90
 
 		les di,[vbe_buffer]
 		mov ax,4f00h
@@ -3077,79 +3069,32 @@ find_mode:
 		int 10h
 		pop di
 		cmp ax,4fh
-		jnz find_mode_30
+		jnz get_vbe_modes_30
+		push word [es:di+12h]
+		pop word [screen_mem]
 		lfs si,[es:di+0eh]
 		les di,[vbe_mode_list]
 		mov cx,0ffh
-find_mode_10:
+get_vbe_modes_10:
 		fs lodsw
 		stosw
 		cmp ax,0ffffh
-		jz find_mode_20
+		jz get_vbe_modes_20
 		dec cx
-		jnz find_mode_10
+		jnz get_vbe_modes_10
 		mov word [es:di],0ffffh
-find_mode_20:
+get_vbe_modes_20:
 		lfs si,[vbe_mode_list]
 		cmp word [fs:si],0
-		jnz find_mode_40
+		jnz get_vbe_modes_90
 		; make sure it's not 0; mode 1 is the same as mode 0
 		mov byte [fs:si],1
-		jmp find_mode_40
-find_mode_30:
+		jmp get_vbe_modes_90
+get_vbe_modes_30:
 		lfs si,[vbe_mode_list]
 		mov word [fs:si],0ffffh
-find_mode_40:
-		fs lodsw
-		cmp ax,0ffffh
-		jz find_mode_80
-		xchg ax,cx
-		les di,[vbe_buffer]
-		mov ax,4f01h
-		push fs
-		push si
-		push di
-		push cx
-		int 10h
-		pop cx
-		pop di
-		pop si
-		pop fs
-		cmp ax,4fh
-		jnz find_mode_40
 
-		test byte [es:di],1		; mode supported?
-		jz find_mode_40
-
-		mov eax,[es:di+12h]		; size
-		cmp eax,[tmp_write_data]
-		jnz find_mode_40
-
-		mov dl,[es:di+1bh]		; color mode (aka memory model)
-		mov dh,[es:di+19h]		; color depth
-
-		cmp dl,6			; direct color
-		jnz find_mode_60
-		cmp dh,32
-		jz find_mode_70
-		mov dh,[es:di+1fh]		; red
-		add dh,[es:di+21h]		; green
-		add dh,[es:di+23h]		; blue
-		jmp find_mode_70
-find_mode_60:
-		cmp dl,4			; PL8
-		jnz find_mode_40
-		mov dh,8
-find_mode_70:
-		cmp dh,[tmp_write_data+4]
-		jnz find_mode_40
-
-		movzx eax,cx
-		jmp find_mode_90
-
-find_mode_80:
-		stc
-find_mode_90:
+get_vbe_modes_90:
 		pop es
 		ret
 
@@ -3774,7 +3719,7 @@ ps_status_info:
 		mov si,msg_13
 		call printf
 
-		mov cx,4
+		mov cx,7
 ps_status_info_10:
 		push cx
 
@@ -6623,6 +6568,42 @@ prim_vscreensize_90:
 		ret
 
 
+;; monitorsize - monitor size
+;
+; group: gfx.screen
+;
+; ( -- int1 int2 )
+;
+; int1, int2: width and height
+;
+prim_monitorsize:
+		mov ax,[pstack_ptr]
+		inc ax
+		inc ax
+		cmp [pstack_size],ax
+		mov bp,pserr_pstack_overflow
+		jb prim_monitorsize_90
+		mov [pstack_ptr],ax
+
+		cmp word [ddc_xtimings],0
+		jnz prim_monitorsize_50
+
+		call get_monitor_res
+
+prim_monitorsize_50:
+
+		mov dl,t_int
+		movzx eax,word [ddc_xtimings]
+		mov cx,1
+		call set_pstack_tos
+		mov dl,t_int
+		movzx eax,word [ddc_xtimings + 2]
+		xor cx,cx
+		call set_pstack_tos
+prim_monitorsize_90:
+		ret
+
+
 ;; image.size - graphics image size
 ;
 ; group: image
@@ -7989,132 +7970,17 @@ prim_editinput_90:
 		ret
 
 
-;; updatedisk - request update disk
+;; sysconfig - get pointer to boot loader config data
 ;
 ; group: system
 ;
-; ( int1 -- )
+; ( -- ptr1 )
 ;
-; int1 = 1: tell boot loader to request a driver update disk (syslinux/isolinux only).
+; ptr1: boot loader config data (32 bytes)
 ;
-prim_updatedisk:
-		call pr_setint
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		mov [es:si+1],al
-		ret
-
-
-;; bootloader - boot loader type
-;
-; group: system
-;
-; ( -- int1 )
-;
-; int1: boot loader type (0: lilo, 1:syslinux/isolinux, 2: grub)
-;
-prim_bootloader:
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		movzx eax,byte [es:si]
-		jmp pr_getint
-
-
-;; bootdrive - drive the BIOS booted from
-;
-; group: system
-;
-; ( -- int1 )
-;
-; int1: BIOS drive id
-;
-prim_bootdrive:
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		movzx eax,byte [es:si+5]
-		jmp pr_getint
-
-
-;; reloadfs - reload file system data
-;
-; group: system
-;
-; ( int1 -- )
-;
-; int1 = 1: tell boot loader to reload file system data (e.g. after a CD
-; change).
-;
-; Note: obsolete.
-;
-
-; FIXME: drop it
-;
-prim_reloadfs:
-		call pr_setint
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		mov [es:si+6],al
-		ret
-
-
-;; usernote - get special config value
-;
-; group: system
-;
-; ( -- int1 )
-;
-; int1: config word. This is the value set by a 'notice' entry in
-; syslinux.cfg/isolinux.cfg. Other boot loaders are not supported.
-;
-
-; FIXME: is actually word, not byte
-;
-prim_usernote:
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		movzx eax,byte [es:si+7]
-		jmp pr_getint
-
-
-;; biosmem - BIOS reported memory size
-;
-; group: mem
-;
-; ( -- int1 )
-;
-; int1: total memory size according to BIOS
-;
-prim_biosmem:
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		mov eax,[es:si+20]
-		jmp pr_getint
-
-
-;; getinfo - type of info box
-;
-; group: system
-;
-; ( -- int1 )
-;
-; int1: type of info box we have to show
-;
-; Note: really weird, should be replaced by something more obvious.
-;
-prim_getinfo:
-		mov dl,t_int
-		call get_1arg
-		jc prim_getinfo_90
-		mov dl,t_int
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		shl ax,2
-		add si,ax
-		mov eax,[es:si+12]
-		xor cx,cx
-		call set_pstack_tos
-prim_getinfo_90:
-		ret
+prim_sysconfig:
+		segofs2lin word [boot_cs],word [boot_sysconfig],eax
+		jmp pr_getptr_or_none
 
 
 ;; 64bit - test if we run on a 64-bit machine
@@ -8274,6 +8140,171 @@ prim_findfile_90:
 		ret
 
 
+;; filesize - get file size
+;
+; group: mem
+;
+; ( str1 -- int1 )
+;
+; str1: file name
+; int1: file length (or .undef if not found)
+;
+; Note: Unlike @findfile, it doesn't load the file.
+;
+; example
+;   "xxx.jpg" filesize		% file size of "xxx.jpg"
+;
+prim_filesize:
+		mov dl,t_string
+		call get_1arg
+		jc prim_filesize_90
+prim_filesize_10:
+		push eax
+		call find_file
+		pop ecx
+		cmp bl,1
+		jz prim_filesize_10		; symlink
+		or eax,eax
+		jz prim_filesize_50
+		call find_mem_size
+prim_filesize_40:
+		mov dl,t_int
+		jmp prim_filesize_70
+prim_filesize_50:
+		xchg eax,ecx
+		call file_size_ext
+		cmp eax,-1
+		jnz prim_filesize_40
+		inc eax
+		mov dl,t_none
+prim_filesize_70:
+		xor cx,cx
+		call set_pstack_tos
+prim_filesize_90:
+		ret
+
+
+;; getcwd - get current working directory
+;
+; group: mem
+;
+; ( -- str1 )
+;
+; str1: file name
+;
+; example
+;   getcwd show		% print working directory
+;
+prim_getcwd:
+		mov al,3
+		call gfx_cb			; cwd (lin)
+		or al,al
+		jnz prim_getcwd_70
+		mov eax,edx
+		mov dl,t_string
+		jmp prim_getcwd_90
+prim_getcwd_70:
+		mov dl,t_none
+		xor eax,eax
+prim_getcwd_90:
+		jmp pr_getobj
+
+
+;; chdir - set current working directory
+;
+; group: mem
+;
+; ( str1 -- )
+;
+; str1: file name
+;
+; example
+;   "/foo/bar" chdir		% set working directory
+;
+prim_chdir:
+		mov dl,t_string
+		call get_1arg
+		jc prim_chdir_90
+		push eax
+		call get_length
+		xchg eax,ecx
+		pop eax
+		jc prim_chdir_60
+
+		or ecx,ecx
+		jz prim_chdir_60
+		cmp ecx,64
+		jae prim_chdir_60
+
+		push cx
+
+		push eax
+		mov al,0
+		call gfx_cb			; get file name buffer address (edx)
+		call lin2so
+		pop si
+		pop fs
+		lin2segofs edx,es,di
+
+		pop cx
+
+		fs rep movsb
+		mov al,0
+		stosb
+
+		mov al,4
+		call gfx_cb
+		or al,al
+
+		mov bp,pserr_invalid_function
+		jnz prim_chdir_70
+
+		dec word [pstack_ptr]
+		jmp prim_chdir_90
+
+prim_chdir_60:
+		mov bp,pserr_invalid_data
+prim_chdir_70:
+		stc
+prim_chdir_90:
+		ret
+
+
+;; _readsector - read sector
+;
+; group: system
+;
+; ( int1 -- ptr1 )
+;
+; int1: sector number
+; ptr1: sector data
+;
+; Note: internal function. Returns pointer to static buffer. Does not return
+; on error. Returns .undef if function is not implemented.
+;
+prim__readsector:
+		mov dl,t_int
+		call get_1arg
+		jc prim__readsector_90
+
+		mov edx,eax
+		mov al,5
+		call gfx_cb			; read sector (nr = edx)
+		or al,al
+		jz prim__readsector_50
+		mov dl,t_none
+		xor eax,eax
+		jmp prim__readsector_80
+prim__readsector_50:
+		mov eax,edx
+		mov dl,t_ptr
+prim__readsector_80:
+		xor cx,cx
+		call set_pstack_tos
+prim__readsector_90:
+		ret
+
+
 ;; setmode - set video mode
 ;
 ; group: gfx.screen
@@ -8340,59 +8371,157 @@ prim_currentmode:
 		jmp pr_getint
 
 
-;; findmode - find video mode number
+;; videomodes - video mode list length
 ;
 ; group: gfx.screen
 ;
-; ( int1 int2 int3 -- int4 )
+; ( -- int1 )
 ;
-; int1, int2: width, height
-; int3: color bits
-; int4: mode number
+; int1: video mode list length (always >= 1)
 ;
-; example
-;   1024 768 16 findmode setmode	% 1024x768, 16-bit color mode
-;
-prim_findmode:
-		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 3
-		jc prim_findmode_90
-
-		mov bp,pserr_wrong_arg_types
-		mov cx,2
-		call get_pstack_tos
-		cmp dl,t_int
-		stc
-		jnz prim_findmode_90
-		push eax
-		mov dx,t_int + (t_int << 8)
-		call get_2args
-		pop edx
-		jc prim_findmode_90
-
-		; eax: color
-		; ecx: height
-		; edx: width
-
-		call find_mode
-		jnc prim_findmode_50
-
-		mov dl,t_none
+prim_videomodes:
+		lfs si,[vbe_mode_list]
 		xor eax,eax
 
-		jmp prim_findmode_60
+prim_videomodes_20:
+		add si,2
+		inc ax
+		cmp word [fs:si-2],0xffff
+		jnz prim_videomodes_20
 
-prim_findmode_50:
+		jmp pr_getint
+
+
+;; videomodeinfo - return video mode info
+;
+; group: gfx.screen
+;
+; ( int1 -- int2 int3 int4 int5 )
+;
+; int1: mode index
+; int2, int3: width, height
+; int4: color bits
+; int5: mode number (bit 14: framebuffer mode) or .undef
+;
+; example
+;   2 videomodeinfo
+;
+prim_videomodeinfo:
 		mov dl,t_int
+		call get_1arg
+		jc prim_vmi_90
 
-prim_findmode_60:
-		sub word [pstack_ptr],byte 2
+		mov cx,[pstack_ptr]
+		add cx,3
+		cmp [pstack_size],cx
+		mov bp,pserr_pstack_overflow
+		jb prim_vmi_90
+		mov [pstack_ptr],cx
 
+		cmp eax,100h
+		jb prim_vmi_10
+		mov ax,0ffh
+prim_vmi_10:
+		add ax,ax
+		lfs si,[vbe_mode_list]
+		add si,ax
+		mov cx,[fs:si]
+		or cx,cx
+		jz prim_vmi_60
+		cmp cx,-1
+		jz prim_vmi_60
+
+		push es
+
+		les di,[vbe_buffer]
+		mov ax,4f01h
+		push di
+		push cx
+		int 10h
+		pop cx
+		pop di
+
+		pop es
+		mov fs,[vbe_buffer+2]
+
+		cmp ax,4fh
+		jnz prim_vmi_60
+
+		test byte [fs:di],1		; mode supported?
+		jz prim_vmi_60
+
+		movzx eax,cx
+		and ax,~(1 << 14)
+		cmp dword [fs:di+28h],byte 0	; framebuffer start
+		jz prim_vmi_20
+		or ax,1 << 14
+prim_vmi_20:
+		mov dl,t_int
+		xor cx,cx
+		push di
+		call set_pstack_tos
+		pop di
+
+		movzx eax,word [fs:di+12h]	; width
+		mov dl,t_int
+		mov cx,3
+		push di
+		call set_pstack_tos
+		pop di
+
+		movzx eax,word [fs:di+14h]	; heigth
+		mov dl,t_int
+		mov cx,2
+		push di
+		call set_pstack_tos
+		pop di
+
+		mov dl,[fs:di+1bh]		; color mode (aka memory model)
+		mov dh,[fs:di+19h]		; color depth
+
+		cmp dl,6			; direct color
+		jnz prim_vmi_30
+		cmp dh,32
+		jz prim_vmi_40
+		mov dh,[fs:di+1fh]		; red
+		add dh,[fs:di+21h]		; green
+		add dh,[fs:di+23h]		; blue
+		jmp prim_vmi_40
+prim_vmi_30:
+		cmp dl,4			; PL8
+		jnz prim_vmi_60
+		mov dh,8
+prim_vmi_40:
+		movzx eax,dh
+
+		mov dl,t_int
+		mov cx,1
+		call set_pstack_tos
+
+		jmp prim_vmi_90
+
+prim_vmi_60:
+		; no mode
+		xor eax,eax
+		mov dl,t_int
+		mov cx,3
+		call set_pstack_tos
+		xor eax,eax
+		mov dl,t_int
+		mov cx,2
+		call set_pstack_tos
+		xor eax,eax
+		mov dl,t_int
+		mov cx,1
+		call set_pstack_tos
+		xor eax,eax
+		mov dl,t_none
 		xor cx,cx
 		call set_pstack_tos
 
-prim_findmode_90:
+prim_vmi_90:
 		ret
+
 
 
 ;; colorbits - current pixel size
@@ -9231,100 +9360,6 @@ prim_currenttitle:
 		segofs2lin word [row_start_seg],word [page_title],eax
 		mov dl,t_string
 		jmp pr_getobj
-
-
-;; videomodes - return number of boot loader video modes
-;
-; group: system
-;
-; ( -- int1 )
-;
-; int1: number of video modes the boot loader suggest for kernel
-; (syslinux/isolinux only).
-; 
-prim_videomodes:
-		mov ax,[pstack_ptr]
-		inc ax
-		cmp [pstack_size],ax
-		mov bp,pserr_pstack_overflow
-		jb prim_videomodes_90
-		mov [pstack_ptr],ax
-
-		mov es,[boot_cs]
-		mov si,[boot_sysconfig]
-		movzx cx,byte [es:si+4]
-		mov si,[es:si+2]
-		xor eax,eax
-		or cx,cx
-		jz prim_videomodes_40
-prim_videomodes_20:
-		cmp byte [es:si+fb_bits],0
-		jz prim_videomodes_40
-		add si,sizeof_fb_entry
-		inc eax
-		loop prim_videomodes_20
-prim_videomodes_40:
-		mov dl,t_int
-		xor cx,cx
-		call set_pstack_tos
-prim_videomodes_90:
-		ret
-
-
-;; getvideomode - get mode from boot loader list
-;
-; group: system
-;
-; ( int1 -- int2 int3 int4 int5 )
-;
-; int1: mode index (see @videomodes)
-; int2: BIOS mode number
-; int3: width
-; int4: height
-; int5: 1: with framebuffer support
-;
-prim_getvideomode:
-		mov dl,t_int
-		call get_1arg
-		jc prim_getvm_90
-		mov bp,pserr_invalid_range
-		mov fs,[boot_cs]
-		mov si,[boot_sysconfig]
-		movzx ecx,byte [fs:si+4]
-		cmp eax,ecx
-		cmc
-		jc prim_getvm_90
-		imul di,ax,sizeof_fb_entry
-		add di,[fs:si+2]
-
-		mov ax,[pstack_ptr]
-		add ax,3
-		cmp [pstack_size],ax
-		mov bp,pserr_pstack_overflow
-		jb prim_getvm_90
-		mov [pstack_ptr],ax
-
-		mov dl,t_int
-		movzx eax,word [fs:di+fb_mode]
-		mov cx,3
-		call set_pstack_tos
-
-		mov dl,t_int
-		movzx eax,word [fs:di+fb_width]
-		mov cx,2
-		call set_pstack_tos
-
-		mov dl,t_int
-		movzx eax,word [fs:di+fb_height]
-		mov cx,1
-		call set_pstack_tos
-
-		mov dl,t_int
-		movzx eax,byte [fs:di+fb_ok]
-		xor cx,cx
-		call set_pstack_tos
-prim_getvm_90:
-		ret
 
 
 ;; usleep - sleep micro seconds
@@ -12227,6 +12262,10 @@ clip_it_90:
 ;		dx,cx	= width, height
 ;		edi	= buffer (linear address)
 ;
+; Note: ensure we only make aligned dword reads from video memory. Else some
+; ATI 7000 boards will make problems (computer hangs).
+; As an added bonus, it really speeds things up.
+;
 save_bg:
 		push fs
 
@@ -12248,35 +12287,88 @@ save_bg:
 
 		lin2seg ebx,es,edi
 
-save_bg_20:
+save_bg_10:
+		push cx
+
 		push dx
-save_bg_30:
-		mov al,[fs:si]
-		inc si
-		jnz save_bg_40
-		call lin_seg_off
-		call inc_winseg
-		lin2seg ebx,es,edi
-save_bg_40:
+
+		mov bp,si
+		mov cx,si
+		and bp,~3
+		and cx,3
+
+		jz save_bg_30
+
+		shl cx,3
+		mov eax,[fs:bp]
+		shr eax,cl
+
+save_bg_20:
 		mov [es:edi],al
 		inc ebx
 		inc di
-		jnz save_bg_50
-		lin2seg ebx,es,edi
-save_bg_50:
+		inc si
+		shr eax,8
 		dec dx
+		jz save_bg_70
+		add cl,8
+		cmp cl,20h
+		jnz save_bg_20
+
+		or si,si
 		jnz save_bg_30
+		call lin_seg_off
+		call inc_winseg
+		lin2seg ebx,es,edi
+
+save_bg_30:
+		mov eax,[fs:si]
+		add si,4
+		jnz save_bg_35
+		call lin_seg_off
+		call inc_winseg
+		lin2seg ebx,es,edi
+save_bg_35:
+		cmp dx,4
+		jb save_bg_50
+		mov [es:edi],eax
+		add ebx,4
+		add di,4
+		jnc save_bg_40
+		lin2seg ebx,es,edi
+save_bg_40:
+		sub dx,4
+		jz save_bg_70
+		jmp save_bg_30
+save_bg_50:
+		sub si,4
+		add si,dx
+		cmp di,-4
+		jbe save_bg_60
+		lin2seg ebx,es,edi
+save_bg_60:
+		mov [es:edi],al
+		inc ebx
+		inc di
+		shr eax,8
+		dec dx
+		jnz save_bg_60
+
+save_bg_70:
+
 		pop dx
 		mov ax,[screen_line_len]
 		sub ax,dx
 		add si,ax
-		jnc save_bg_60
+		jnc save_bg_80
 		call lin_seg_off
 		call inc_winseg
 		lin2seg ebx,es,edi
-save_bg_60:
+save_bg_80:
+		pop cx
+
 		dec cx
-		jnz save_bg_20
+		jnz save_bg_10
 
 save_bg_90:
 
@@ -12284,7 +12376,6 @@ save_bg_90:
 
 		pop fs
 		ret
-
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
@@ -13103,6 +13194,57 @@ find_file_ext_90:
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
+; Find file from file system, returns size.
+;
+;  eax		file name (lin)
+;
+; return:
+;  eax		file size (-1: not found)
+;
+file_size_ext:
+		mov dl,t_string
+		push eax
+		call get_length
+		xchg eax,ecx
+		pop eax
+		or ecx,ecx
+		jz file_size_ext_80
+		cmp ecx,64
+		jae file_size_ext_80
+
+		push cx
+
+		push eax
+		mov al,0
+		call gfx_cb			; get file name buffer address (edx)
+		call lin2so
+		pop si
+		pop fs
+		lin2segofs edx,es,di
+
+		pop cx
+
+		fs rep movsb
+		mov al,0
+		stosb
+
+		mov al,1
+		call gfx_cb			; open file (ecx size)
+		or al,al
+		jnz file_size_ext_80
+
+		mov eax,ecx
+		jmp file_size_ext_90
+
+file_size_ext_80:
+		stc
+		sbb eax,eax
+file_size_ext_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
 ; Clip image area.
 ;
 ; [line_x0]		left, incl
@@ -13757,4 +13899,193 @@ mouse_handler:
 		mov [cs:mouse_button],ax
 
 		retf
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
+; Get monitor capabilities.
+;
+;
+get_monitor_res:
+		call read_ddc
+		call read_fsc
+
+		; convert timing bitmask to resolution
+		; if the card has enough memory assume larger resolutions
+
+		mov ax,[ddc_timings]
+		mov dword [ddc_xtimings],640 + (480 << 16)
+		test ax,0ef03h
+		jnz get_mon_res_20
+		cmp word [screen_mem],0x3e		; at least 4MB-128k
+		jb get_mon_res_21
+get_mon_res_20:
+		mov dword [ddc_xtimings],800 + (600 << 16)
+get_mon_res_21:
+		test ax,0f00h
+		jnz get_mon_res_22
+		cmp word [screen_mem],0x200		; at least 32MB
+		jb get_mon_res_23
+get_mon_res_22:
+		mov dword [ddc_xtimings],1024 + (768 << 16)
+get_mon_res_23:
+		test ax,0100h
+		jz get_mon_res_24
+		mov dword [ddc_xtimings],1280 + (1024 << 16)
+get_mon_res_24:
+
+		; find max. resolution
+
+		mov cx,5
+		mov si,ddc_xtimings
+
+get_mon_res_30:
+		mov ax,[si]
+		mov dx,[si+2]
+
+		cmp ax,[ddc_xtimings]
+		jb get_mon_res_60
+
+		cmp dx,[ddc_xtimings+2]
+		jb get_mon_res_60
+
+		mov [ddc_xtimings],ax
+		mov [ddc_xtimings+2],dx
+
+get_mon_res_60:
+		add si,4
+		loop get_mon_res_30
+
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
+; Read EDID record via DDC
+;
+read_ddc:
+		push es
+
+		; vbe support check
+		cmp word [screen_mem],0
+		jz read_ddc_90
+
+		xor cx,cx
+		xor dx,dx
+		mov ax,4f15h
+		mov bl,0
+		int 10h
+		cmp ax,4fh
+		jnz read_ddc_90
+
+		les di,[vbe_buffer]
+		push di
+		mov cx,40h
+		xor ax,ax
+		rep stosw
+		pop di
+		mov ax,4f15h
+		mov bl,1
+		xor cx,cx
+		xor dx,dx
+		push di
+		int 10h
+		pop di
+		cmp ax,4fh
+		jnz read_ddc_90
+
+		mov ax,[es:di+23h]
+		mov [ddc_timings],ax
+
+		mov cx,4
+		lea si,[di+26h]
+		mov di,ddc_xtimings1
+read_ddc_40:
+		es lodsb
+		cmp al,1
+		jbe read_ddc_70
+		
+		movzx ebp,al
+		add bp,byte 31
+		shl bp,3
+
+		mov al,[es:si]
+		shr al,6
+		jz read_ddc_70
+		movzx bx,al
+		shl bx,3
+
+		mov eax,ebp
+		mul dword [bx+ddc_mult]
+		div dword [bx+ddc_mult+4]
+		
+		jz read_ddc_70
+
+		shl eax,16
+		add eax,ebp
+		mov [di],eax
+
+read_ddc_70:
+		inc si
+		add di,4
+		loop read_ddc_40
+
+read_ddc_90:
+		pop es
+		ret
+
+ddc_timings	dw 0		; standard ddc timing info
+ddc_xtimings	dd 0		; converted standard timing/final timing value
+ddc_xtimings1	dd 0, 0, 0, 0
+ddc_mult	dd 0, 1		; needed for ddc timing calculation
+		dd 3, 4
+		dd 4, 5
+		dd 9, 16
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; look for a fsc notebook lcd panel and set ddc_timings
+read_fsc:
+		push es
+		push ds
+		cmp word [ddc_timings],byte 0
+		jnz read_fsc_90
+
+		push word 0xf000
+		pop ds
+		xor di,di
+read_fsc_10:
+		cmp dword [di],0x696a7546
+		jnz read_fsc_30
+		cmp dword [di+4],0x20757374
+		jnz read_fsc_30
+		mov cx,0x20
+		xor bx,bx
+		mov si,di
+read_fsc_20:
+		lodsb
+		add bl,al
+		dec cx
+		jnz read_fsc_20
+		or bl,bl
+		jnz read_fsc_30
+		mov al,[di+23]
+		and al,0xf0
+		jnz read_fsc_90
+		mov bl,[di+21]
+		and bx,0xf0
+		shr bx,3
+		mov ax,[cs:bx+fsc_bits]
+		mov [cs:ddc_timings],ax
+		jmp read_fsc_90
+read_fsc_30:
+		add di,0x10
+		jnz read_fsc_10
+read_fsc_90:
+		pop ds
+		pop es
+		ret
+
+fsc_bits	dw 0, 0x0004, 0x4000, 0x0200, 0x0100, 0x0200, 0, 0x4000
+		dw 0x0200, 0, 0, 0, 0, 0, 0, 0
+
 

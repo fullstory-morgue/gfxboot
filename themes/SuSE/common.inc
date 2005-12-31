@@ -4,28 +4,8 @@
 %
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-%
-% look if we've been started from dvd side 2
-%
-% ( ) ==> ( true|false )
-%
-/is_second_side {
-  syslinux usernote 1 and 0 ne and
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-%
-% Should we check for 64bit?
-%
-% ( ) ==> ( true|false )
-%
-/do_64bit_check {
-  syslinux usernote 2 and 0 ne and
-} def
-
+% max command line length
+/cmdlinelength 512 def
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 %
@@ -34,7 +14,9 @@
 % ( ) ==> ( true|false )
 %
 /64bit_source {
-  syslinux usernote 4 and 0 ne and
+  % 64 bit dir exists and is != 32 bit dir
+  64bit_boot_dir 32bit_boot_dir ne
+  64bit_boot_dir .undef ne and
 } def
 
 
@@ -45,7 +27,21 @@
 % ( ) ==> ( true|false )
 %
 /is_dvd {
-  syslinux usernote 8 and 0 ne and
+  % check only once
+  is_dvd.result .undef ne { is_dvd.result return } if
+
+  /is_dvd.result
+    mediatype m_cdrom eq {
+      0x10 readsector
+      dup 0x50 add getdword exch free
+      9 shr % iso size in MB
+      720 gt % assume dvd if > 720 MB
+    } {
+      false
+    } ifelse
+  def
+
+  is_dvd.result return
 } def
 
 
@@ -56,7 +52,9 @@
 % ( ) ==> ( true|false )
 %
 /32+64bit_source {
-  syslinux usernote 16 and 0 ne and
+  32bit_boot_dir .undef ne
+  % uncomment next line to automatically warn about 32bit software on 64bit machines, too
+  % 64bit_boot_dir .undef ne and
 } def
 
 
@@ -70,6 +68,47 @@
   biosmem 4 20 shl lt
   biosmem 200 20 shl ge or
   syslinux not or
+} def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+%
+% Check if there are boot directories for 32 & 64bit.
+%
+% Assumes 32bit to be in *i386* and 64bit in *x86_64*.
+%
+% ( ) ==> ( )
+%
+/check_arch_boot_dir {
+  getcwd dup .undef ne {
+    /64bit.tmp 256 string def
+
+    dup "i386" strstr 0 ne over "x86_64" strstr 0 ne or {
+      dup "i386" strstr {
+        /32bit_boot_dir exch def
+        /64bit_boot_dir 32bit_boot_dir "i386" "x86_64" strreplace
+      } {
+        /64bit_boot_dir exch def
+        /32bit_boot_dir 64bit_boot_dir "x86_64" "i386" strreplace
+      } ifelse
+
+      dup "%s/isolinux.cfg" 64bit.tmp sprintf
+      64bit.tmp filesize .undef ne { def } { free pop } ifelse
+
+    } {
+      /32bit_boot_dir over def
+      /64bit_boot_dir exch def
+    } ifelse
+
+    64bit.tmp free
+
+    % font.normal setfont
+    % 0 400 moveto 32bit_boot_dir print
+    % 0 420 moveto 64bit_boot_dir print dtrace
+
+  } {
+    pop
+  } ifelse
 } def
 
 
@@ -194,7 +233,7 @@
 } def
 
 
-/bc.cmd 256 string def
+/bc.cmd cmdlinelength string def
 
 % ( option_string ) ==> ( cmdline menu_entry )
 %
@@ -250,7 +289,17 @@
 
   syslinux {
     /add_suffix xmenu.bits .xm_current get bits.suffix exch get def
+
+    % set new working directory
+    xmenu.bits .xm_current get 1 eq { 64bit_boot_dir } { 32bit_boot_dir } ifelse
+    dup .undef ne {
+      dup getcwd ne { chdir } { pop } ifelse
+    } {
+      pop
+    } ifelse
   } if
+
+  % getcwd 0 300 moveto show trace
 
   bc.addkernel {
     alt.kernel { alt.kernel } { bc.kernel } ifelse
@@ -265,6 +314,24 @@
   } ifelse
 
   cmdline.hidden "" ne {
+    /add_suffix 32 string def
+
+    syslinux {
+      video.modes.list xmenu.video .xm_current get get
+      dup .vm_mode get 0 ge {
+        dup .vm_height get exch .vm_width get
+        ",%04d%04d.spl" add_suffix sprintf
+      } { pop } ifelse
+
+      % find out splash size for kernel loading progress bar
+      add_suffix 1 add filesize dup .undef ne {
+        sectorsize 1 sub add sectorsize div /progress_extra exch def
+      } {
+        pop
+        add_suffix 0 0 put	% empty string
+      } ifelse
+    } if
+
     add_suffix {
       /bc.tmp cmdline.hidden length add_suffix length add string def
       cmdline.hidden "initrd" bootopt.find dup .undef ne {
@@ -285,26 +352,27 @@
     } {
       cmdline.hidden "%s " bc.cmd dup length add sprintf
     } ifelse
-  } if
 
-  syslinux {
-    xmenu.video 0 get 0 eq {
-      "textmode=1 " bc.cmd dup length add sprintf
-    } if
-
-    video.modes.list xmenu.video .xm_current get get
-    dup .vm_width get 640 eq
-    over .vm_height get 480 eq
-    and {
-      pop
-      "x11i=vesa " bc.cmd dup length add sprintf
-    } {
-      .vm_mode get dup {
-        "vga=0x%x " bc.cmd dup length add sprintf
+    syslinux {
+      % find out initrd size for kernel loading progress bar
+      "initrd" filesize dup .undef ne {
+        sectorsize 1 sub add sectorsize div /progress_extra exch progress_extra add def
       } {
         pop
       } ifelse
+    } if
 
+  } if
+
+  syslinux {
+    video.modes.list xmenu.video .xm_current get get .vm_mode get
+
+    dup 0 ge {
+      0x200 add "vga=0x%x " bc.cmd dup length add sprintf
+    } {
+      -1 eq {
+        "textmode=1 " bc.cmd dup length add sprintf
+      } if
     } ifelse
 
     config.lang {
@@ -379,35 +447,25 @@
 
 %  fadein_logo
 
-  enough_mem not livecd and {
+  syslinux {
+    enough_mem not livecd and {
 
-    notimeout nomem_popup
-
-  } {
-
-    is_second_side {
-
-      notimeout dvd_popup
+      notimeout nomem_popup
 
     } {
 
-      do_64bit_check {
+      32+64bit_source not {
 
-        32+64bit_source not {
-
-          64bit {
-            64bit_source not { notimeout 32bit_popup } if
-          } {
-            64bit_source { notimeout 64bit_popup } if
-          } ifelse
-
-        } if
+        64bit {
+          64bit_source not { notimeout 32bit_popup } if
+        } {
+          64bit_source { notimeout 64bit_popup } if
+        } ifelse
 
       } if
 
     } ifelse
-
-  } ifelse
+  } if
 
 } def
 
@@ -462,12 +520,12 @@
   cmdline "showopts" getoption
   dup "" eq {
     cmdline.shown 0 0 put
-    pop cmdline "%s" 256 cmdline.shown snprintf
+    pop cmdline "%s" cmdline.shown sprintf
     cmdline.hidden 0 0 put
   } {
     "showopts" length add skipspaces
-    "%s" 256 cmdline.shown snprintf
-    cmdline "%s" 256 cmdline.hidden snprintf
+    "%s" cmdline.shown sprintf
+    cmdline "%s" cmdline.hidden sprintf
     cmdline.hidden "showopts" getoption 0 0 put
   } ifelse
 
@@ -475,65 +533,6 @@
   cmdline.hidden dropspaces
 
   cmdline.shown
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Skip leading non-spaces.
-%
-% ( string ) ==> ( string )
-%
-/skipnonspaces {
-  { dup 0 get dup 0 ne exch ' ' ne and { 1 add } { exit } ifelse } loop
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Skip leading spaces.
-%
-% ( string ) ==> ( string )
-%
-/skipspaces {
-  { dup 0 get ' ' eq { 1 add } { exit } ifelse } loop
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Drop spaces at string end.
-% Modifies string!
-%
-% ( string ) ==> ( )
-%
-/dropspaces {
-  dup length
-  dup 0 eq {
-    pop pop
-  } {
-    1 sub
-    -1 0 {
-      over over get ' ' eq { over exch 0 put } { pop exit } ifelse
-    } for
-    pop
-  } ifelse
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Test if string[ofs-1]/string[ofs] is a word boundary.
-%
-% ( string ofs ) ==> ( true|false )
-%
-% boundary is either space/non-space or non-space/(space|'=')
-%
-/iswordboundary {
-  dup 0 eq { pop pop true return } if
-
-  add dup 1 sub 0 get exch 0 get
-
-  over ' ' eq over ' ' gt and { pop pop true return } if
-  over ' ' gt over dup ' ' eq exch dup '=' eq exch 0 eq or or and { pop pop true return } if
-
-  pop pop false
 } def
 
 
@@ -701,13 +700,6 @@
     ] put
   } ifelse
 
-  info.type 2 eq
-  is_second_side and {
-    txt_dvd_warning info.msg
-    over length info.msg length 1 add add "%s%s" exch
-    dup string dup /info.msg exch def snprintf
-  } if
-
   syslinux info.type 3 eq and {
     dup .title txt_change_disk_title put
     0 getinfo 1 add txt_insert_disk info.tmpmsg sprintf
@@ -841,7 +833,12 @@
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % ( max current ) ==> ( )
+%
+% Note: max is just kernel size (in sectors).
+%
 /ProgressUpdate {
+  exch progress_extra add exch
+
   over over 100 mul exch 1 max div progress.percent
 
   progress.syms mul progress.syms 2 div add exch 1 max div
@@ -856,6 +853,9 @@
   pop
 
 } def
+
+% initrd size (in sectors)
+/progress_extra 0 def
 
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -919,15 +919,15 @@
   dup "memtest" eq over "memtest86" eq or { pop txt_memtest return } if
   syslinux {
     livecd {
-      dup "linux"     eq { pop "SUSE LINUX 9.3 LiveCD (english)" return } if
+      dup "linux"     eq { pop "SUSE Linux 10.1 LiveCD (english)" return } if
       dup "failsafe"  eq { pop "LiveCD - Safe Settings" return } if
-      dup "linux2"    eq { pop "SUSE LINUX 9.3 LiveCD (deutsch)" return } if
+      dup "linux2"    eq { pop "SUSE Linux 10.1 LiveCD (deutsch)" return } if
       dup "failsaf2"  eq { pop "LiveCD - Sichere Einstellungen" return } if
     } {
       dup "linux"     eq { pop txt_install        return } if
       dup "failsafe"  eq { pop txt_safe_install   return } if
     } ifelse
-    dup "live"      eq { pop "SUSE LINUX 9.3 LiveCD" return } if
+    dup "live"      eq { pop "SUSE Linux 10.1 LiveCD" return } if
     dup "noacpi"    eq { pop txt_noacpi_install return } if
     dup "manual"    eq { pop txt_manual_install return } if
     dup "rescue"    eq { pop txt_rescue         return } if
@@ -1200,7 +1200,7 @@
 
   /boot.pos { boot.label.len 10 add ptheme { 480 } { small_layout { 380 } { 490 } ifelse } ifelse } def
 
-  /boot.buf.size 256 def
+  /boot.buf.size cmdlinelength def
   /boot.buf boot.buf.size string def
 
   % no boot options line initially
@@ -1450,7 +1450,7 @@
 
   dup .title "Cool computer, but..." put
   dup .text
-    "Sorry, but SUSE LINUX 10.0 LiveCD needs at least 256MB main memory."
+    "Sorry, but SUSE Linux 10.1 LiveCD needs at least 256MB main memory."
   put
   dup .buttons [
     button.reboot button.default actReboot actNoClose or button.setaction
@@ -1605,16 +1605,21 @@ dup .undef eq ptheme and { pop "back.jpg" findfile /ptheme false def } if
 /font.normal "16x16.fnt" findfile def
 /font.large font.normal def
 
-/cmdline.hidden 256 string def
-/cmdline.shown 256 string def
+/cmdline.hidden cmdlinelength string def
+/cmdline.shown cmdlinelength string def
 
 /kroete.dir 0 def
 
 /debug 0 def
 
-ptheme small_layout or {
+ptheme small_layout or
+true or {
   /bsplash.done { } def
 } {
   bsplash.show
 } ifelse
+
+check_arch_boot_dir
+
+
 

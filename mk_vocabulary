@@ -17,7 +17,7 @@
   trace dtrace
   malloc free memsize dumpmem
   gettype settype
-  screen.size image.colors vscreen.size
+  screen.size image.colors vscreen.size monitorsize
   moveto currentpoint lineto setcolor currentcolor putpixel getpixel
   setfont currentfont fontheight strsize show settextmodecolor
   image loadpalette tint settintcolor setpalette getpalette
@@ -26,8 +26,7 @@
   fillrect
   snprintf
   edit.init edit.done edit.input edit.showcursor edit.hidecursor
-  updatedisk rmoveto bootloader
-  strstr
+  rmoveto strstr
 
   sound.getvolume sound.setvolume
   sound.getsamplerate sound.setsamplerate
@@ -46,8 +45,6 @@
   lineheight
   currenttitle
 
-  videomodes getvideomode
-
   usleep notimeout
   time date
   setbrightness currentbrightness
@@ -55,14 +52,14 @@
   idle
   image.size
 
-  bootdrive reloadfs usernote eject poweroff reboot biosmem
+  eject poweroff reboot
 
-  getinfo 64bit
+  64bit
 
   getbyte putbyte getdword putdword
-  findfile
+  findfile filesize getcwd chdir
 
-  setmode currentmode findmode
+  setmode currentmode videomodeinfo videomodes
   colorbits
 
   setimage currentimage
@@ -75,7 +72,7 @@
 
   blend
 
-  memcpy
+  memcpy sysconfig _readsector
 
   xxx
 

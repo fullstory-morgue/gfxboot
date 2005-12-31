@@ -1,3 +1,29 @@
+14/12/2005:	v3.2.6
+	- fixed to work correctly with grub & lilo
+
+5/12/2005:	v3.2.5
+	- Colin Watson <cjwatson@ubuntu.com>: build fixes for x86-64
+	- fixed kernel splash loading
+	- include 'unpack_bootlogo' script in package
+
+30/11/2005:	v3.2.4
+	- adjust to syslinux 3.11
+	- remove some primary words and reimplement them as bytecode
+	- read config options from 'gfxboot.cfg'
+
+19/10/2005:	v3.2.3
+	- offer Croatian
+
+12/10/2005:	v3.2.2
+	- do only aligned dword reads from video memory - some ATI boards
+	  need this (#114804)
+
+6/10/2005:	v3.2.1
+	- needs syslinux with updated gfx patch
+	- texts updated for 10.1
+	- implemented filesize, getcwd, chdir commands
+	- using new cd layout
+
 15/9/2005:	v3.2.0
 	- better testing script
 	- gcc 4.1 compile fixes

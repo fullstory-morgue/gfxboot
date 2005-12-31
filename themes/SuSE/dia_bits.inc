@@ -28,11 +28,16 @@
 
   xmenu .xm_list [ "32bit" ] put
 
-  do_64bit_check 32+64bit_source and {
+  32+64bit_source {
     64bit {
       /bits.default 1 def
       xmenu .xm_list [ "32bit" "64bit" ] put
     } if
+  } if
+
+  % no '64' suffix
+  32bit_boot_dir 64bit_boot_dir ne {
+    bits.suffix 1 .undef put
   } if
 
   xmenu .xm_current bits.default put
