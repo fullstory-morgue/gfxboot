@@ -1,3 +1,10 @@
+gfxboot (3.2.6-1) UNRELEASED; urgency=low
+
+  * (NOT RELEASED YET) New upstream release
+  * remove cdbs auot-update feature.
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sat, 31 Dec 2005 02:43:28 +0100
+
 gfxboot (3.2.0-2) UNRELEASED; urgency=low
 
   * NOT RELEASED YET

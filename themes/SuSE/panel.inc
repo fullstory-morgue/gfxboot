@@ -49,9 +49,14 @@
         [ keyF4 0 "F4" /panel.install /panel.install.width /panel.install.update /install.init ]
         [ keyF5 0 "F5" /panel.dud /panel.dud.width /panel.dud.update .undef ]
 
-        do_64bit_check 32+64bit_source and {
+        32+64bit_source {
           64bit {
-            [ keyF6 0 "F6" /panel.bits /panel.bits.width /panel.bits.update /bits.init ]
+            32bit_boot_dir .undef ne
+            64bit_boot_dir .undef ne
+            32bit_boot_dir 64bit_boot_dir ne
+            and and {
+              [ keyF6 0 "F6" /panel.bits /panel.bits.width /panel.bits.update /bits.init ]
+            } if
           } if
         } if
 

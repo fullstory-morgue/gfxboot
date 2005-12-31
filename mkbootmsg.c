@@ -16,7 +16,7 @@
 #include "bincode.h"
 
 #define MAGIC		0xb2d97f00
-#define VERSION 	6
+#define VERSION 	7
 #define DICT_SIZE	1000
 
 #define MAX_INCLUDE	10
@@ -163,7 +163,7 @@ int main(int argc, char **argv)
   int opt_info = 0;
 
   if(sizeof (file_header_t) != 32) {
-    fprintf(stderr, "file_header_t has wrong size: %d\n", sizeof (file_header_t));
+    fprintf(stderr, "file_header_t has wrong size: %d\n", (int) sizeof (file_header_t));
     wrong_struct_size();
     return 1;
   }
