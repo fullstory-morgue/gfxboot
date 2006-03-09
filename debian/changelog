@@ -1,18 +1,48 @@
-gfxboot (3.2.11-2) UNRELEASED; urgency=low
+gfxboot (3.2.14-1) unstable; urgency=low
 
-  * NOT RELEASED YET
+  * New upstream release:
+    - new theme, cont.
+    - it's now nolapic (#155280)
+    - translations updated
+    - drop dosemu as testing platform
+    - new theme, first try
+  * fix changelog.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Thu, 16 Feb 2006 11:29:52 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Thu,  9 Mar 2006 17:08:22 +0100
 
 gfxboot (3.2.11-1) unstable; urgency=low
 
-  * New upstream release
+  * New upstream release:
+    - add apic boot option (#150030)
+    - more defensive monitor detection (#149578)
+    - monitor detection can be skipped
+    - go for 8 bit framebuffer if there are no 16 bit modes (#144742)
+    - better monitor detection
+    - cjwatson@ubuntu.com: support big-endian cpio archives (#140119)
+    - support direct driverupdate loading from CD-ROM (feat #152)
+    - add new languages
+    - show all options in grub/lilo (#136377)
+    - translations & font updated
 
  -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Thu, 16 Feb 2006 11:27:22 +0100
 
 gfxboot (3.2.6-1) unstable; urgency=low
 
-  * New upstream release
+  * New upstream release:
+    - fixed to work correctly with grub & lilo
+    - Colin Watson <cjwatson@ubuntu.com>: build fixes for x86-64
+    - fixed kernel splash loading
+    - include 'unpack_bootlogo' script in package
+    - adjust to syslinux 3.11
+    - remove some primary words and reimplement them as bytecode
+    - read config options from 'gfxboot.cfg'
+    - offer Croatian
+    - do only aligned dword reads from video memory - some ATI boards
+      need this (#114804)
+    - needs syslinux with updated gfx patch
+    - texts updated for 10.1
+    - implemented filesize, getcwd, chdir commands
+    - using new cd layout
   * remove cdbs auto-update feature.
   * adapt build-deps for X.org 6.9/ 7.0.
   * adapt debian/patches/01_x11libs.diff for upstream changes (debian-amd64 is

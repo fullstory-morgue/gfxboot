@@ -15,16 +15,17 @@ HELPINST_ALL = $(notdir $(HELPINST))
 
 DEFAULT_LANG =
 
-PIC_COMMON   = back.jpg head{,_a}.jpg {l,r,v}dots{,_a}.jpg
-PIC_INSTALL  = greeting.jpg pback.jpg phead.jpg panim{,_a}.jpg
+PIC_COMMON   = timer_a.jpg
+PIC_INSTALL  = back.jpg
+PIC_BOOT     = back-low.jpg
 
 FILES_INST   = init languages $(TRANSLATIONS) 16x16.fnt kroete.dat \
 	       $(PIC_COMMON) $(PIC_INSTALL) $(HELPINST_ALL)
 
 FILES_BOOT   = init languages $(TRANSLATIONS) 16x16.fnt \
-	       $(PIC_COMMON) $(HELPBOOT_ALL)
+	       $(PIC_COMMON) $(PIC_BOOT) $(HELPBOOT_ALL)
 
-FILES_BOOT_EN = init languages en.tr 16x16.fnt $(PIC_COMMON) en.hlp
+FILES_BOOT_EN = init languages en.tr 16x16.fnt $(PIC_COMMON) back.jpg en.hlp
 
 INST_EXT     = 16x16.fnt $(PIC_COMMON) $(PIC_INSTALL) kroete.dat *.hlp *.tr
 
@@ -61,6 +62,7 @@ ifdef DEFAULT_LANG
 	@echo $(DEFAULT_LANG) >boot/lang
 	@echo $(DEFAULT_LANG) >>boot/languages
 endif
+	@mv boot/back-low.jpg boot/back.jpg
 	@sh -c 'cd boot; echo $(FILES_BOOT_EN) | sed -e "s/ /\n/g" | cpio --quiet -o >message'
 
 installdir: install.config $(INCLUDES) $(HELPINST)

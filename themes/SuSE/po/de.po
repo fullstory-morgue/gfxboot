@@ -273,7 +273,16 @@ msgstr "Weitere Optionen"
 #. txt_language
 msgid "Language"
 msgstr "Sprache"
+
 #. txt_apic
 msgid "Installation--IOAPIC Enabled"
 msgstr "Installation - IOAPIC aktiviert"
+
+#. txt_noapic_install
+msgid "Installation--IOAPIC Disabled"
+msgstr "Installation - IOAPIC deaktiviert"
+
+#. txt_nolapic_install
+msgid "Installation--Local APIC Disabled"
+msgstr "Installation - Lokaler APIC deaktiviert"
 
