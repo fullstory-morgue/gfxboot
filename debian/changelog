@@ -1,8 +1,16 @@
-gfxboot (3.2.14-2) UNRELEASED; urgency=low
+gfxboot (3.2.14-2) unstable; urgency=low
 
-  * NOT RELEASED YET
+  * add Ubuntu changes from Colin Watson <cjwatson@ubuntu.com>:
+    - Include unpack_bootlogo script in /usr/bin.
+  * add Ubuntu changes from Matt Zimmerman <mdz@ubuntu.com> :
+    - Architecture: i386 amd64.
+  * depend on x-dev as well; implicitly pulled in by current debian/ XFS
+    packaging for libx11-dev, but necessary for Ubuntu's versions.
+  * drop suggests for kanotix-graphics, because documentation has been added
+    upstream, the SuSE theme is still included and alternative themes are
+    appearing.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Thu,  9 Mar 2006 17:13:22 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Fri, 10 Mar 2006 11:59:34 +0100
 
 gfxboot (3.2.14-1) unstable; urgency=low
 
