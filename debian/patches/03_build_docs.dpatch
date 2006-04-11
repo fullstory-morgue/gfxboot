@@ -1,0 +1,30 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 03_build_docs.diff by Stefan Lippers-Hollmann <s.l-h@gmx.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description
+
+@DPATCH@
+diff -Nrup a/Makefile b/Makefile
+--- a/Makefile	2006-04-11 22:16:00.121194750 +0200
++++ b/Makefile	2006-04-11 22:16:18.286330000 +0200
+@@ -7,7 +7,7 @@ THEMES	 = $(wildcard themes/*)
+ 
+ .PHONY: all themes clean install doc
+ 
+-all:	bin2c mkbootmsg bincode getx11font addblack
++all:	bin2c mkbootmsg bincode getx11font addblack doc
+ 
+ getx11font: getx11font.c
+ 	$(CC) $(CFLAGS) -L$(X11LIBS) $< -lX11 -o $@
+diff -Nrup a/doc/Makefile b/doc/Makefile
+--- a/doc/Makefile	2006-04-11 21:43:37.407782000 +0200
++++ b/doc/Makefile	2006-04-11 22:16:18.286330000 +0200
+@@ -19,3 +19,7 @@ html: $(XMLSRC)
+ 
+ clean:
+ 	rm -rf *~ *.pdf *.html *.txt reference.xml *.dsl *.local
++
++install: all
++	install -m 755 -d $(DESTDIR)/usr/share/doc/gfxboot
++	install -m 644    gfxboot.html $(DESTDIR)/usr/share/doc/gfxboot/

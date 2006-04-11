@@ -66,7 +66,7 @@
 %
 /enough_mem {
   biosmem 4 20 shl lt
-  biosmem 200 20 shl ge or
+  biosmem livecd.mem.check 20 shl ge or
   syslinux not or
 } def
 
@@ -427,9 +427,15 @@
   } if
 
   xmenu.dud {
-    dud.options xmenu.dud .xm_current get get dup "" ne {
-      "%s " bc.cmd dup length add sprintf
-    } { pop } ifelse
+    xmenu.dud .xm_current get .dud_file eq {
+      input.edit.dud_file 0 get dup "" ne {
+        "driverupdate=%s " bc.cmd dup length add sprintf
+      } { pop } ifelse
+    } {
+      dud.options xmenu.dud .xm_current get get dup "" ne {
+        "%s " bc.cmd dup length add sprintf
+      } { pop } ifelse
+    } ifelse
   } if
 
   xmenu.profile {
@@ -535,8 +541,6 @@
   dup window.init
       window.show
 
-%  fadein_logo
-
   syslinux {
     enough_mem not livecd and {
 
@@ -556,8 +560,6 @@
 
     } ifelse
   } if
-
-  fade_warning.init
 
 } def
 
@@ -802,7 +804,7 @@
 
   syslinux info.type 6 eq and {
     dup .title "Driver Update" put
-    /info.msg "Put the SuSE Linux CD-ROM back into the drive." def
+    /info.msg "Put the SUSE Linux CD-ROM back into the drive." def
   } if
 
   dup .text info.msg put
@@ -1015,6 +1017,8 @@
       dup "failsafe"  eq { pop "LiveCD - Safe Settings" return } if
       dup "linux2"    eq { pop "SUSE Linux 10.1 LiveCD (deutsch)" return } if
       dup "failsaf2"  eq { pop "LiveCD - Sichere Einstellungen" return } if
+      dup "kde"       eq { pop "LiveCD - KDE" return } if
+      dup "gnome"     eq { pop "LiveCD - GNOME" return } if
     } {
       dup "linux"     eq { pop txt_install        return } if
       dup "failsafe"  eq { pop txt_safe_install   return } if
@@ -1106,26 +1110,6 @@
 } def
 
 
-/fadeout_logo {
-  /cols 256 malloc def
-
-  0 1 255 { cols exch 0 put } for
-
-  10 1 150 {
-    10 1 100 {
-       over exch moveto getpixel
-       cols exch 1 put
-    } for
-    pop
-  } for
-  cols 10 10 moveto getpixel 0 fade
-} def
-
-/fadein_logo {
-  cols 10 10 moveto getpixel fadein
-} def
-
-
 % Allocate and define a new color.
 %
 % ( palette ) ==> ( color )
@@ -1166,25 +1150,14 @@
 
 % ( file_name ) ==> ( image )
 /readimage {
-  findfile dup setimage 0 0 image.size unpackimage exch free
+  findfile dup .undef ne {
+    dup setimage 0 0 image.size unpackimage exch free
+  } if
 } def
 
 
 /init {
   0 0 moveto currentpoint clip.size image
-
-  ptheme {
-    /head.x 31 def
-    /head.y 23 def
-  } {
-    small_layout {
-      /head.x 31 def
-      /head.y 23 def
-    } {
-      /head.x -15 def
-      /head.y -30 def
-    } ifelse
-  } ifelse
 
   ptheme { ptheme.init } if
 
@@ -1222,8 +1195,8 @@
   /menu.bar.color      white       def
 
   small_layout {
-    /frame1.pos  { 250 150 } def
-    /frame1.width  365 def
+    /frame1.pos  { 120 110 } def
+    /frame1.width  400 def
   } {
     /frame1.pos  { 200 192 } def
     /frame1.width  400 def
@@ -1247,7 +1220,7 @@
   /boot.buf.size cmdlinelength def
   /boot.buf boot.buf.size string def
 
-  % no boot options line initially
+  % false: no boot options line initially
   /boot.show true def
 
   /update.pos {
@@ -1332,6 +1305,13 @@
 
   dup keyShiftF11 eq {
     /transp transp 0x10 sub 0 max def
+
+    % /player 0 def
+    % player "hapysuse.mod" findfile mod.load
+    % 50 sound.setvolume
+    % player 0 mod.play
+    % /player player 1 add 3 and def
+
     pop 0
   } if
 
@@ -1488,7 +1468,9 @@
 
   dup .title "Cool computer, but..." put
   dup .text
-    "Sorry, but SUSE Linux 10.1 LiveCD needs at least 256MB main memory."
+    livecd.mem.show
+    "Sorry, but SUSE Linux 10.1 LiveCD needs at least %dMB main memory."
+    dup length 32 add string dup 4 1 roll sprintf
   put
   dup .buttons [
     button.reboot button.default actReboot actNoClose or button.setaction
@@ -1608,60 +1590,11 @@ dup .undef eq { pop "back-low.jpg" findfile } if
 
 /debug 0 def
 
-ptheme small_layout or {
+ptheme small_layout or CapsLock or {
   /bsplash.done { } def
 } {
-  /bsplash.done { } def
-  % bsplash.show
+  bsplash.show
 } ifelse
 
 check_arch_boot_dir
-
-
-/fade_warning false def
-
-% ( time ) ==> ( )
-/Timer {
-  fade_warning not { return } if
-
-  /fade.count fade.count 10 sub def
-
-  fade.count 0 lt {
-    /fade_warning false def
-    return
-  } if
-
-  fade.count 255 gt { return } if
-
-  % copy to fade.bg fade.buf
-  0 0 moveto fade.bg 0xff fade.buf blend
-  
-  0 0 moveto
-  fade.fg fade.count fade.buf blend
-  
-  fade.x fade.y moveto fade.buf restorescreen
-
-} def
-
-
-/fade_warning.init {
-  /fade.msg "Preliminary theming - no complaints!" def
-  fade.msg strsize /fade.height exch 1 add def /fade.width exch 1 add def
-  /fade.x clip.size pop fade.width sub 2 div def
-  /fade.y 420 def
-
-  /fade.bg fade.x fade.y moveto fade.width fade.height savescreen def
-
-  fade.x fade.y moveto 1 1 rmoveto
-  0x806080 setcolor fade.msg show
-  fade.x fade.y moveto
-  0xc04040 setcolor fade.msg show
-
-  /fade.fg fade.x fade.y moveto fade.width fade.height savescreen def
-  /fade.buf fade.x fade.y moveto fade.width fade.height savescreen def
-
-  /fade.count 0x300 def
-
-  /fade_warning true def
-} def
 

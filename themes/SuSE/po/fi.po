@@ -3,19 +3,19 @@
 # translation of bootloader.po to
 # LANGUAGE translations for boot loader
 # Copyright (C) 2005 SUSE Linux GmbH
-# Jyri Palokangas <jmp@netti.fi>, 2005.
-# Janne Ahlskog <j.ahlskog@multi.fi>, 2006.
 #
+# Jyri Palokangas <jmp@netti.fi>, 2005, 2006.
+# Jami Saarikoski <jami.saarikoski@gmail.com>, 2006.
 msgid ""
 msgstr ""
 "Project-Id-Version: fi\n"
-"PO-Revision-Date: 2006-02-04 18:19+0200\n"
-"Last-Translator: Janne Ahlskog <j.ahlskog@multi.fi>\n"
-"Language-Team: suomi <fi@li.org>\n"
+"PO-Revision-Date: 2006-04-03 09:28+0300\n"
+"Last-Translator: Jyri Palokangas <jmp@netti.fi>\n"
+"Language-Team: suomi <yast-trans-fi@kotoistaminen.novell.fi>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: KBabel 1.10.2\n"
+"X-Generator: KBabel 1.11.2\n"
 
 # ok button label
 #. txt_ok
@@ -125,7 +125,7 @@ msgstr "Käynnistyslataaja"
 # error box title
 #. txt_error_title
 msgid "I/O error"
-msgstr "I/O virhe"
+msgstr "I/O-virhe"
 
 # boot disk change dialog title
 #. txt_change_disk_title
@@ -278,7 +278,7 @@ msgstr "Kieli"
 
 #. txt_apic
 msgid "Installation--IOAPIC Enabled"
-msgstr ""
+msgstr "Asennus--IOAPIC käytössä"
 
 #. txt_noapic_install
 msgid "Installation--IOAPIC Disabled"
@@ -286,5 +286,23 @@ msgstr "Asennus--IOAPIC pois käytöstä"
 
 #. txt_nolapic_install
 msgid "Installation--Local APIC Disabled"
+msgstr "Asennus--Paikallinen APIC pois käytöstä"
+
+#. txt_yes
+msgid "Yes"
+msgstr "Kyllä"
+
+#. txt_no
+msgid "No"
+msgstr "Ei"
+
+# menu item for selecting a file
+#. txt_file
+msgid "File"
+msgstr ""
+
+# input label: share as in "Windows share" (SMB)
+#. txt_share
+msgid "Share\n"
 msgstr ""
 

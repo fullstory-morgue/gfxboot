@@ -1,0 +1,23 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 02_bindir.diff by Stefan Lippers-Hollmann <s.l-h@gmx.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description
+
+@DPATCH@
+diff -Nrup a/Makefile b/Makefile
+--- a/Makefile	2006-04-11 22:13:27.143634250 +0200
++++ b/Makefile	2006-04-11 22:12:40.424714500 +0200
+@@ -40,9 +40,9 @@ jpeg.o: jpeg.S
+ 	as --32 -ahlsn=jpeg.lst -o $@ $<
+ 
+ install: all
+-	install -d -m 755 $(DESTDIR)/usr/sbin $(DESTDIR)/usr/share/gfxboot
+-	install -m 755 mkbootmsg getx11font help2txt $(DESTDIR)/usr/sbin
+-	cp -a themes $(DESTDIR)/usr/share/gfxboot
++	install -d -m 755 $(DESTDIR)/usr/bin $(DESTDIR)/usr/share/gfxboot
++	install -m 755 mkbootmsg getx11font help2txt $(DESTDIR)/usr/bin
++	#cp -a themes $(DESTDIR)/usr/share/gfxboot
+ 	cp -a bin $(DESTDIR)/usr/share/gfxboot
+ 
+ clean: themes doc

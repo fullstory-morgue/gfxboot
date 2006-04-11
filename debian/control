@@ -2,7 +2,7 @@ Source: gfxboot
 Section: utils
 Priority: optional
 Maintainer: Stefan Lippers-Hollmann <s.l-h@gmx.de>
-Build-Depends: cdbs (>= 0.4.23-1.1), debhelper (>= 5.0.0), patchutils (>= 0.2.25), x-dev, libx11-dev, nasm, xmlto
+Build-Depends: cdbs (>= 0.4.23-1.1), debhelper (>= 5.0.0), patchutils (>= 0.2.25), dpatch, x-dev, libx11-dev, nasm, xmlto
 Standards-Version: 3.6.2
 
 Package: gfxboot
@@ -12,3 +12,25 @@ Recommends: grub-gfxboot
 Description: bootlogo creator for gfxboot compliant boot loaders
  This package is needed to create the graphical boot logos for gfxboot, 
  introduced and developed by SuSE, it is suitable for grub, lilo and syslinux.
+
+Package: gfxboot-theme-suse
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Description: SuSE theme for gfxboot-compliant boot loaders
+ This package places the source for the SuSE gfxboot theme under 
+ /usr/share/gfxboot-theme-suse/.
+
+Package: gfxboot-theme-sles
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Description: SLES theme for gfxboot-compliant boot loaders
+ This package places the source for the SuSE SLES gfxboot theme under 
+ /usr/share/gfxboot-theme-sles/.
+
+Package: gfxboot-theme-nld
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Description: NLD theme for gfxboot-compliant boot loaders
+ This package places the source for the Novell Linux Desktop (NLD) gfxboot 
+ theme under /usr/share/gfxboot-theme-nld/.
+
