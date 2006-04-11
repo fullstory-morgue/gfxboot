@@ -1,3 +1,34 @@
+7/4/2006:	v3.2.23
+	- translations updated
+	- fine-tuned splash
+
+4/4/2006:	v3.2.22
+	- fixed Khmer menu entry
+
+3/4/2006:	v3.2.21
+	- fixed evil memory corruption bug
+
+31/3/2006:	v3.2.20
+	- added 'share' input field for smb install
+	- some more texts are translatable
+	- Live-CD preparations
+
+30/3/2006:	v3.2.19
+	- adjusted 640x480 fallback layout
+	- added driver update dialog that lets you enter the update file name
+
+29/3/2006:	v3.2.18
+	- better 'welcome' screen
+
+28/3/2006:	v3.2.17
+	- added new 'welcome' screen
+
+27/3/2006:	v3.2.16
+	- translations updated
+
+13/3/2006:	v3.2.15
+	- added NLD & SLES themes
+
 6/3/2006:	v3.2.14
 	- new theme, cont.
 	- it's now nolapic (#155280)

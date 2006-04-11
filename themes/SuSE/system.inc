@@ -78,6 +78,8 @@
 /statusCtrl   0x0104 def
 /statusShift  0x0003 def
 
+/CapsLock { 0x417 cvp getbyte 0x40 and 0 ne } def
+
 % boot loader
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -278,6 +280,25 @@ def
 % ( obj ) ==> ( string )
 %
 /cvs { t_string settype } def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+% Convert object to number.
+%
+% ( obj ) ==> ( int )
+%
+/cvn {
+  dup gettype t_string eq {
+    0 exch
+    {
+      '0' sub
+      dup 0 lt over 9 gt or { pop exit } if
+      exch 10 mul add
+    } forall
+  } {
+    t_int settype
+  } ifelse
+} def
 
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -514,7 +535,7 @@ def
 
   gfxconfig.data {
 
-    % overkill because string compare does not honour eotchar
+    % overkill because string compare does not honor eotchar
     dup strdup dup 5 index eq {
       dup length exch free 1 add add exch pop exit
     } {
@@ -760,6 +781,36 @@ def
     } loop
     pop pop
   } if
+} def
+
+
+% Test whether we run in Live-CD mode
+%
+% (  -- true|false )
+%
+/livecd {
+  /livecd "livecd" getgfxconfig dup .undef ne { 0 ne } { pop false } ifelse def
+  livecd
+} def
+
+
+% Mininum Live-CD memory in MB.
+%
+% (  -- int )
+%
+/livecd.mem.check {
+  /livecd.mem.check "livecd.mem.check" getgfxconfig dup .undef ne { cvn } { pop 200 } ifelse def
+  livecd.mem.check
+} def
+
+
+% Mininum Live-CD memory in MB we ask the user for.
+%
+% (  -- int )
+%
+/livecd.mem.show {
+  /livecd.mem.show "livecd.mem.show" getgfxconfig dup .undef ne { cvn } { pop 256 } ifelse def
+  livecd.mem.show
 } def
 
 

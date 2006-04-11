@@ -1,6 +1,7 @@
 BINDIR      := $(shell [ -x ../../mkbootmsg ] && echo ../../ )
 
 PRODUCT      = "SUSE Linux 10.1"
+export PRODUCT
 
 HELP2TXT     = $(BINDIR)help2txt
 MKBOOTMSG    = $(BINDIR)mkbootmsg
@@ -8,7 +9,7 @@ BFLAGS       = -O -v -L ../..
 INCLUDES     = $(wildcard *.inc)
 TRANSLATIONS = $(addsuffix .tr,en $(notdir $(basename $(wildcard po/*.po))))
 HELPBOOT     = $(addsuffix .hlp,$(addprefix boot/,$(subst .,,$(suffix $(basename $(wildcard help-boot.*.html))))))
-HELPINST     = $(addsuffix .hlp,$(addprefix install/,$(subst .,,$(suffix $(basename $(wildcard help-install.*.html))))))
+HELPINST     := $(addsuffix .hlp,$(addprefix install/,$(subst .,,$(suffix $(basename $(wildcard help-install.*.html))))))
 
 HELPBOOT_ALL = $(notdir $(HELPBOOT))
 HELPINST_ALL = $(notdir $(HELPINST))
@@ -16,7 +17,7 @@ HELPINST_ALL = $(notdir $(HELPINST))
 DEFAULT_LANG =
 
 PIC_COMMON   = timer_a.jpg
-PIC_INSTALL  = back.jpg
+PIC_INSTALL  = back.jpg welcome.jpg text*.pcx
 PIC_BOOT     = back-low.jpg
 
 FILES_INST   = init languages $(TRANSLATIONS) 16x16.fnt kroete.dat \
@@ -45,6 +46,9 @@ install/%.hlp: help-install.%.html install
 
 all: themes
 
+boot.config:
+	$(error run 'make prep' first)
+
 boot install: po
 	mkdir -p $@
 
@@ -53,7 +57,7 @@ po:
 
 themes: bootdir installdir
 
-bootdir: boot.config $(INCLUDES) $(HELPBOOT)
+bootdir: boot.config po boot $(INCLUDES) $(HELPBOOT)
 	@cp -a po/*.tr boot
 	@for i in $(FILES_BOOT) ; do [ -f $$i ] && cp $$i boot ; done ; true
 	@echo en >boot/languages
@@ -65,7 +69,7 @@ endif
 	@mv boot/back-low.jpg boot/back.jpg
 	@sh -c 'cd boot; echo $(FILES_BOOT_EN) | sed -e "s/ /\n/g" | cpio --quiet -o >message'
 
-installdir: install.config $(INCLUDES) $(HELPINST)
+installdir: install.config po install $(INCLUDES) $(HELPINST)
 	@cp -a po/*.tr install
 	@for i in $(FILES_INST) ; do [ -f $$i ] && cp $$i install ; done ; true
 	$(MKBOOTMSG) $(BFLAGS) -l install/log -c $< install/init
@@ -79,7 +83,7 @@ font:
 	cat po/*.po *.html >tmp.txt
 	../../getx11font -v -l 18 -p 2,4 \
 	-c ISO-8859-15 -c ISO-8859-2 -c koi8-r \
-	`./keymapchars keymap.*.inc` \
+	`../../bin/keymapchars keymap.*.inc` \
 	-t tmp.txt \
 	-t install/log -t boot/log \
 	-t languages \
@@ -90,7 +94,15 @@ font:
 	rm -f tmp.txt
 
 clean:
-	make -C po clean
+	[ ! -f po/Makefile ] || make -C po clean
+	rm -f `find -type l`
+	rmdir po 2>/dev/null || true
+	rm -f bootdir installdir *~ *.log
+	rm -rf boot install
+
+prep:
+	[ -e boot.config ] || { mkdir po ; ../../bin/adddir ../SuSE . ; }
+	[ ! -f po/Makefile ] || make -C po clean
 	rm -f bootdir installdir *~ *.log
 	rm -rf boot install
 
