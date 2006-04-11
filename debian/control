@@ -8,7 +8,7 @@ Standards-Version: 3.6.2
 Package: gfxboot
 Architecture: amd64 i386
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Recommends: grub-gfxboot
+Recommends: grub-gfxboot (>> 0.97-5)
 Suggests: gfxboot-theme-suse | gfxboot-theme-sles | gfxboot-theme-nld
 Description: bootlogo creator for gfxboot compliant boot loaders
  This package is needed to create the graphical boot logos for gfxboot, 
@@ -16,21 +16,21 @@ Description: bootlogo creator for gfxboot compliant boot loaders
 
 Package: gfxboot-theme-suse
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot (>> 3.2)
 Description: SuSE theme for gfxboot-compliant boot loaders
  This package places the source for the SuSE gfxboot theme under 
  /usr/share/gfxboot-theme-suse/.
 
 Package: gfxboot-theme-sles
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot (>> 3.2)
 Description: SLES theme for gfxboot-compliant boot loaders
  This package places the source for the SuSE SLES gfxboot theme under 
  /usr/share/gfxboot-theme-sles/.
 
 Package: gfxboot-theme-nld
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gfxboot (>> 3.2)
 Description: NLD theme for gfxboot-compliant boot loaders
  This package places the source for the Novell Linux Desktop (NLD) gfxboot 
  theme under /usr/share/gfxboot-theme-nld/.
