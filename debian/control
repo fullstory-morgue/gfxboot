@@ -9,6 +9,7 @@ Package: gfxboot
 Architecture: amd64 i386
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: grub-gfxboot
+Suggests: gfxboot-theme-suse | gfxboot-theme-sles | gfxboot-theme-nld
 Description: bootlogo creator for gfxboot compliant boot loaders
  This package is needed to create the graphical boot logos for gfxboot, 
  introduced and developed by SuSE, it is suitable for grub, lilo and syslinux.
