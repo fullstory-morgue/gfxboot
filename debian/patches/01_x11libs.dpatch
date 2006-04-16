@@ -17,7 +17,7 @@ diff -Nrup a/Makefile b/Makefile
 -else
 -X11LIBS	 = /usr/X11/lib
 -endif
-+X11LIBS	 = /usr/X11R6/lib
++X11LIBS	 = /usr/lib/X11
  THEMES	 = $(wildcard themes/*)
  
  .PHONY: all themes clean install doc
