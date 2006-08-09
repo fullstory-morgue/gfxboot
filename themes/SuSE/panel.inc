@@ -29,12 +29,19 @@
 
   /panel.back 0 panel.y moveto panel.size savescreen def
 
+  /panel.entry.help [ keyF1 0 "F1" /panel.help /panel.help.width /panel.help.update .undef ] def
+  /panel.entry.about [ keyF1 0 "F1" /panel.about /panel.about.width /panel.about.update .undef ] def
+
   % define panel layout
   /panel.full [
 
     % [ key x label show_func width_func update_func init_func ]
 
-    [ keyF1 0 "F1" /panel.help /panel.help.width /panel.help.update .undef ]
+    about.msg {
+      panel.entry.about
+    } {
+      panel.entry.help
+    } ifelse
 
     syslinux {
 
@@ -97,7 +104,7 @@
     /panel ptheme {
       panel.penguin
     } {
-%% include panel.default
+      panel.full
       CapsLock { pop panel.full } if
     } ifelse def
   } {
@@ -204,7 +211,7 @@
     /panel.extra.fkey 1 def
     menu.entry false MenuSelect
     menu.visible.entries menu.entry menu.shift sub sub 1 eq {
-      /menu.shift menu.shift 1 add def redrawmenu
+      /menu.shift menu.shift 1 add def main.drawmenu
     } if
     /menu.entry menu.entry 1 add def
     menu.entry true MenuSelect

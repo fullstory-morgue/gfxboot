@@ -105,7 +105,7 @@
       } for
 
       % no modes added? -> try 8 bit
-      dup 0 get -2 eq vm_color_bits 8 ne and {
+      dup .vm_mode get -2 eq vm_color_bits 8 ne and {
         /vm_color_bits 8 def
       } {
         exit
@@ -128,13 +128,30 @@
     } for
   } if
 
+  % remove duplicates
+  % (assumes text or vesa entry to be first)
+
+  /video.modes.list
+    [
+      video.modes.list {
+        dup .vm_mode get 0 gt {		% ensure it's not the first entry
+          over .vm_width get over .vm_width get eq
+          2 index .vm_height get 2 index .vm_height get eq and {
+            free
+          } if
+        } if
+      } forall
+    ]
+    video.modes.list free
+  def
+
   % create mode strings
 
   /video.modes.text [
     video.modes.list {
       dup .vm_width get
       dup 0 eq {
-        pop pop "Text Mode"
+        pop pop /txt_text_mode
       } {
         dup 1 eq {
           pop pop "VESA"
@@ -153,6 +170,18 @@
 
   boot_failsafe 4 and { 0 0 } { monitorsize } ifelse
   exch 800 max exch 600 max		% at least 800x600
+
+  % ATI quirk: avoid 1280x1024, older chips (<= 8MB, max res 1280x1024) use
+  % interlaced there
+
+  video.modes.list dup length 1 sub get
+  dup .vm_width get 1280 eq exch .vm_height get 1024 eq and {
+    video.memory 0x2000 le {
+      video.oem "ATI " strstr 1 eq {
+        exch 1024 min exch 768 min	% down to 1024x768
+      } if
+    } if
+  } if 
 
   xmenu .xm_current -1 put
   video.modes.list {

@@ -149,19 +149,19 @@
     window.current .type get
     dup t_dialog eq { exch dialog.input exch } if
     dup t_help eq { exch help.input exch } if
-    dup t_main eq { exch main.input exch } if
+    dup t_main eq { exch main.input dialog.input exch } if
     dup t_xmenu eq { exch xmenu.input exch } if
     pop
 
-    % maybe there is an editable input field
-    dup 0 ne {
-      window.current .ed get .undef ne {
-        window.current .ed.font get setfont
-        window.current .color.fg get setcolor
-        window.current .ed get exch edit.input
-        0
-      } if
-    } if
+    % % maybe there is an editable input field
+    % dup 0 ne {
+    %   window.current .ed get .undef ne {
+    %     window.current .ed.font get setfont
+    %     window.current .color.fg get setcolor
+    %     window.current .ed get exch edit.input
+    %     0
+    %   } if
+    % } if
 
     % only top level window gets input
     pop 0
@@ -297,26 +297,30 @@
 
   /window.buttons window.current .buttons get def
 
-  window.buttons .undef ne { window.buttons length {
+  /has_buttons window.buttons .undef ne { window.buttons length 0 gt } { false } ifelse def
 
-    dup keyEnter eq {
-      window.buttons window.findselected
-      over over get 7 get /window.action exch def get
-      dup button.press 100000 usleep
-      window.action actNoClose and {
-        window.action dialog.specialaction { button.show } if
-      } {
-        pop window.done
-      } ifelse
-      pop 0
-    } if
+  dup keyEnter eq has_buttons and {
+    window.buttons window.findselected
+    over over get 7 get /window.action exch def get
+    dup button.press 100000 usleep
+    window.action actNoClose and {
+      window.action dialog.specialaction { button.show } if
+    } {
+      pop window.done
+    } ifelse
+    pop 0
+  } if
 
-    window.current .ed.list get {
+  window.current .ed.list get {
+
+    window.current .ed.list get window.current .ed.focus get get .inp_show aget false ne {
+
       dup keyDown eq over keyTab eq or {
         window.current .ed.focus get
         window.current .ed.list get over get edit.hidecursor
 
         1 add window.current .ed.list get length mod
+        window.current .ed.list get over get .inp_show aget false ne { } { pop 0 } ifelse
         window.current .ed.focus 2 index put
         window.current .ed.list get exch get edit.showcursor
         pop 0
@@ -327,31 +331,40 @@
         window.current .ed.list get over get edit.hidecursor
 
         1 sub window.current .ed.list get length exch over add exch mod
+        {
+          dup 0 eq { exit } if
+          window.current .ed.list get over get .inp_show aget false ne { exit } { 1 sub } ifelse
+        } loop
         window.current .ed.focus 2 index put
         window.current .ed.list get exch get edit.showcursor
         pop 0
       } if
 
-%      dup keyTab eq {
-%        window.findselected 1 add window.buttons length mod
-%        window.selectbutton
-%        pop 0
-%      } if
+  %    dup keyTab eq {
+  %      window.findselected 1 add window.buttons length mod
+  %      window.selectbutton
+  %      pop 0
+  %    } if
 
-    } {
+    } if
+
+  } {
+    has_buttons {
       dup keyTab eq over keyRight eq or over keyDown eq or {
         window.findselected 1 add window.buttons length mod
         window.selectbutton
         pop 0
       } if
 
-      dup keyLeft eq over keyUp eq or {
+      dup keyShiftTab eq over keyLeft eq or over keyUp eq or {
         window.findselected window.buttons length 1 sub add window.buttons length mod
         window.selectbutton
         pop 0
       } if
-    } ifelse
+    } if
+  } ifelse
 
+  has_buttons {
     dup window.findkey dup 0 ge {
       window.buttons exch
       over over get 7 get /window.action exch def get
@@ -365,8 +378,7 @@
     } {
       pop
     } ifelse
-
-  } if } if
+  } if
 
 
   % maybe there are input fields
@@ -377,7 +389,7 @@
         setfont
       window.current .color.fg get setcolor
 
-      window.current .ed.focus get get exch edit.input
+      window.current .ed.focus get get dup .inp_show aget false ne { exch edit.input } { pop pop } ifelse
       0
     } { pop } ifelse
   } if

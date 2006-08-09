@@ -9,7 +9,7 @@
 /keyEsc       0x0000001b def
 /keyEnter     0x0000000d def
 /keyTab       0x00000009 def
-/keyShiftTab  0x00800009 def
+/keyShiftTab  0x0f000000 def
 /keyF1        0x3b000000 def
 /keyF2        0x3c000000 def
 /keyF3        0x3d000000 def
@@ -79,6 +79,23 @@
 /statusShift  0x0003 def
 
 /CapsLock { 0x417 cvp getbyte 0x40 and 0 ne } def
+
+
+% input object fields
+/.inp_x		 0 def		% x pos
+/.inp_y		 1 def		% y pos
+/.inp_back	 2 def		% background pixmap
+/.inp_buf	 3 def		% input buffer
+/.inp_buf_len	 4 def		% input buffer length
+/.inp_cur	 5 def		% current edit char offset
+/.inp_cursor	 6 def		% cursor pos (pixel)
+/.inp_shift	 7 def		% input line shifted (pixel)
+% optional fields
+/.inp_hidden	 8 def		% hidden buffer
+/.inp_label	 9 def		% input field label
+/.inp_visible	10 def		% field is visible
+/.inp_show	11 def		% field should be visible
+
 
 % boot loader
 
@@ -282,6 +299,8 @@ def
 /cvs { t_string settype } def
 
 
+% base num char
+
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % Convert object to number.
 %
@@ -289,12 +308,22 @@ def
 %
 /cvn {
   dup gettype t_string eq {
-    0 exch
+    1 % sign
+    exch dup 0 get '-' eq {
+      exch pop 1 add -1 exch
+    } if
+    10 % initial base
+    0 % value
+    rot
     {
+      dup 'a' ge { 0x20 sub } if
+      dup 'X' eq { pop pop pop 16 0 '0' } if
       '0' sub
-      dup 0 lt over 9 gt or { pop exit } if
-      exch 10 mul add
+      dup 9 gt { 7 sub } if
+      dup 0 lt over 4 index ge or { pop exit } if
+      exch 2 index mul add
     } forall
+    exch pop mul
   } {
     t_int settype
   } ifelse
@@ -486,6 +515,17 @@ def
 } def
 
 
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+%
+% Read CMOS RAM.
+%
+% ( index ) ==> ( value )
+%
+/nvram {
+  0x70 exch outbyte
+  0x71 inbyte
+} def
+
 
 % - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 % readsector - read sector
@@ -564,15 +604,18 @@ def
 %
 /split {
 
+  % split does not work if str1 is in a special memory region (where 
+  % 'cvp length' does not work). So we dup it first.
+
+  exch strdup dup rot
+
   currenteotchar exch seteotchar exch
 
   [ exch
 
     {
-      dup length 0 gt {
-        dup strdup exch
-        dup length add
-      } if
+      dup strdup exch
+      dup length add
 
       dup cvp length 1 le { pop exit } if
 
@@ -583,6 +626,37 @@ def
   ]
 
   exch seteotchar
+
+  exch free
+
+} def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+% join - join array of strings
+%
+% group:
+%
+% ( array1 str1 -- str2 )
+%
+% array1: array of strings
+% str1: separator
+% str2: complete string
+%
+/join {
+  over length 0 eq { pop pop 0 string return } if
+
+  over length 1 sub over length mul
+  2 index { length add } forall
+  string
+
+  % note: last element is not followed by separator because it exceeds
+  % the destination string size
+  rot {
+    strcat over strcat
+  } forall
+
+  exch pop
 
 } def
 
@@ -707,20 +781,20 @@ def
 % ( cmdline option_name ) ==> ( option_start )
 %
 /bootopt.find {
-  /bo.opt exch def
-  /bo.cmdline exch def
+  /_bo.opt exch def
+  /_bo.cmdline exch def
 
   {
-    bo.cmdline bo.opt strstr
+    _bo.cmdline _bo.opt strstr
     dup {
       dup 1 eq {
         true
       } {
-        dup 2 sub bo.cmdline exch get ' ' eq
+        dup 2 sub _bo.cmdline exch get ' ' eq
       } ifelse
 
       {
-        bo.cmdline over bo.opt length add 1 sub get
+        _bo.cmdline over _bo.opt length add 1 sub get
         dup '=' eq
         over ' ' eq or
         exch 0 eq or
@@ -728,12 +802,12 @@ def
         false
       } ifelse
 
-      bo.cmdline rot add exch
+      _bo.cmdline rot add exch
 
       {
         1 sub exit
       } {
-        /bo.cmdline exch def
+        /_bo.cmdline exch def
       } ifelse
     } {
       pop
@@ -794,23 +868,109 @@ def
 } def
 
 
-% Mininum Live-CD memory in MB.
+% Mininum required memory in MB.
 %
 % (  -- int )
 %
-/livecd.mem.check {
-  /livecd.mem.check "livecd.mem.check" getgfxconfig dup .undef ne { cvn } { pop 200 } ifelse def
-  livecd.mem.check
+/mem.check {
+  mem.min getgfxconfig dup .undef ne { cvn } { pop 0 } ifelse
 } def
 
 
-% Mininum Live-CD memory in MB we ask the user for.
+% Message to print if we fail minimum memory requirement.
+%
+% (  -- str1 )
+%
+/mem.show {
+  mem.msg getgfxconfig dup .undef eq { pop "Not enough memory." } if
+} def
+
+
+% Bitmask for menu entries with no boot option input field.
 %
 % (  -- int )
 %
-/livecd.mem.show {
-  /livecd.mem.show "livecd.mem.show" getgfxconfig dup .undef ne { cvn } { pop 256 } ifelse def
-  livecd.mem.show
+/config.nobootoptions {
+  "nobootoptions" getgfxconfig dup .undef ne { cvn } { pop 0 } ifelse
+  /config.nobootoptions over def
+} def
+
+
+% Video memory in kb.
+%
+% (  -- int )
+%
+/video.memory {
+  /video.memory 0 sysinfo def
+  video.memory
+} def
+
+
+% Graphics card OEM info.
+%
+% (  -- string )
+%
+/video.oem {
+  /video.oem 1 sysinfo strdup def
+  video.oem
+} def
+
+
+% Graphics card vendor name.
+%
+% (  -- string )
+%
+/video.vendor {
+  /video.vendor 2 sysinfo strdup def
+  video.vendor
+} def
+
+
+% Graphics card product name.
+%
+% (  -- string )
+%
+/video.product {
+  /video.product 3 sysinfo strdup def
+  video.product
+} def
+
+
+% Graphics card revision.
+%
+% (  -- string )
+%
+/video.revision {
+  /video.revision 4 sysinfo strdup def
+  video.revision
+} def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+% Free memory.
+%
+% Like free, but accepts dict entries, too.
+%
+% ( obj -- )
+%
+/xfree {
+  dup gettype
+  t_dict_idx eq {
+    dup exec exch .undef def
+  } if
+  free
+} def
+
+
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+% Get array element.
+%
+% Like get, but returns .undef if index is outside array bounds.
+%
+% ( array index -- obj )
+%
+/aget {
+  over length over gt { get } { pop pop .undef } ifelse
 } def
 
 

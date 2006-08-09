@@ -93,9 +93,10 @@ clip.size pop 800 eq {
 % ( ) ==> ( option )
 %
 /findbootoption {
-  /bo.buf boot.ed 3 get def
-  /bo.len boot.ed 4 get def
-  /bo.pos boot.ed 5 get def
+  boot.window .ed.list get boot.window .ed.focus get get
+  /bo.buf over .inp_buf get def
+  /bo.len over .inp_buf_len  get def
+  /bo.pos exch .inp_cur get def
 
   {
     bo.pos 0 eq { exit } if
@@ -108,7 +109,7 @@ clip.size pop 800 eq {
   bo.buf 0 get ' ' le { "" return } if
 
   % "o_" + option name is the help text label
-  "o_" 3 bo.opt snprintf
+  "o_" bo.opt sprintf
 
   0 1 bo.opt.max 1 sub {
     dup
@@ -677,14 +678,11 @@ clip.size pop 800 eq {
 /help.getmessages {
 
   help.messages .undef eq {
-    % find help texts
+    % load help texts
     /help.messages
-      help.file free /help.file .undef def
-      16 string dup config.lang "%s.hlp" 2 index sprintf
-      findfile exch free
-      dup .undef eq { pop "en.hlp" findfile } if
-      dup .undef eq { pop "" } if
-      /help.file over def
+      config.lang "%s.hlp" locale.findfile
+      dup .undef eq { pop "en_US" "%s.hlp" locale.findfile } if
+      dup .undef eq { pop 0 string } if
       cvs
     def
   } if
