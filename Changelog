@@ -1,3 +1,64 @@
+1/8/2006:	v3.2.35
+	- started internal rewrite to run all code in 32 bit pm
+
+24/7/2006:	v3.2.34
+	- fixed Zen theme
+
+19/7/2006:	v3.2.33
+	- added Catalan & Vietnamese
+	- better debug window
+	- fixed minor file reading bug
+	- better internal locale handling
+	- separated en locale into en_GB & en_US
+
+17/7/2006:	v3.2.32
+	- more than one boot option line, finished (#160066)
+	- added 'about' button
+	- make it openSUSE
+	- added xen test config
+
+10/7/2006:	v3.2.31
+	- use disk image, not floppy for grub testing
+	- updated Zen pictures
+	- made full panel default
+	- ShiftTab now works
+	- remove duplicate video modes (#145749)
+	- menu bar fits menu text width
+	- made 'Text Mode' translatable (#179582)
+	- workaround for interlaced mode issue on some ATI cards (#177982)
+	- use disk image, not floppy for lilo testing
+	- major code cleanup
+	- removed ancient compatibility code
+	- allow more than one boot option line (for xen)
+	- using beta pictures
+
+9/6/2006:	v3.2.30
+	- translations updated
+	- minor Zen theme change
+
+23/5/2006:	v3.2.29
+	- translations updated
+	- added Zen texts & theme
+
+22/5/2006:	v3.2.28
+	- add check to handle insufficient real mode handling in Xen on VMX
+	  machines (#175473)
+	- allow per menu entry memory checks via mem.min[<label>] and
+	  mem.msg[<label>] in gfxboot.cfg
+
+15/5/2006:	v3.2.27
+	- fix random memory corruption when trying to open a nonexistent
+	  file (#165846)
+
+2/5/2006:	v3.2.26
+	- translations updated (#170561)
+
+27/4/2006:	v3.2.25
+	- implemented inbyte/outbyte to access i/o space (#170167)
+
+19/4/2006:	v3.2.24
+	- fix drawing bug (#166914)
+
 7/4/2006:	v3.2.23
 	- translations updated
 	- fine-tuned splash

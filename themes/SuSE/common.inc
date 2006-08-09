@@ -66,8 +66,7 @@
 %
 /enough_mem {
   biosmem 4 20 shl lt
-  biosmem livecd.mem.check 20 shl ge or
-  syslinux not or
+  biosmem mem.check 20 shl ge or
 } def
 
 
@@ -131,7 +130,7 @@
 /KeyEvent {
   % timeout
 
-  dup 0 eq { boot.buf buildcmdline 2 return } if
+  dup 0 eq { boot.ed.list buildcmdline 2 return } if
 
   debug 4 ge {
     % print keycode somewhere
@@ -142,10 +141,6 @@
 
   dup 0xff00 and 16 shl over 0xff and dup 0xe0 eq { pop 0 } if add /key exch def
   16 shr 0xffff and /keystat exch def
-
-  key keyTab eq keyStatus statusShift and 0 ne and {
-    /key keyShiftTab def
-  } if
 
   key
 
@@ -214,11 +209,22 @@
     /window.action actNothing def
     /load_error false def
 
+    syslinux {
+      menu.texts menu.entry 0 max menu.texts length 1 sub min get
+      dup "mem.min[%s]" mem.min sprintf
+      "mem.msg[%s]" mem.msg sprintf
+
+      enough_mem not {
+        nomem_popup
+        "" -1 0 return
+      } if
+    } if
+
     % some tricks to make it possible to review the complete command line
     debug 3 ge xxx.cmdline .undef eq and {
       /window.action actNothing def
 
-      boot.buf buildcmdline /xxx.menu exch def /xxx.cmdline exch def
+      boot.ed.list buildcmdline /xxx.menu exch def /xxx.cmdline exch def
 
       /dia window.dialog def
       dia .title "Kernel command line" put
@@ -237,13 +243,13 @@
       dia window.init
       dia window.show
 
-      boot.buf menu.entry 0
+      "" -1 0
     } {
       xxx.cmdline .undef ne {
         xxx.cmdline xxx.menu
         /xxx.cmdline .undef def
       } {
-        boot.buf buildcmdline
+        boot.ed.list buildcmdline
       } ifelse
       2 return
     } ifelse
@@ -269,71 +275,52 @@
     install.cancel
   } if
 
-  boot.buf menu.entry 0
+  "" -1 0
 } def
 
 
 /bc.cmd cmdlinelength string def
+/mem.min 128 string def
+/mem.msg 256 string def
 
-% ( option_string ) ==> ( cmdline menu_entry )
+
+% ( edit_object_list ) ==> ( cmdline menu_entry )
+%
+/buildcmdline {
+  menu.entry 0 lt menu.entry menu.texts length ge or { pop "" -1 return } if
+
+  [ over
+    {
+      dup .inp_show get {
+        build1cmdline strdup
+      } {
+        pop
+      } ifelse
+    } forall
+
+    % empty? -> pass at least the first edit object
+    dup [ eq { over 0 get build1cmdline strdup } if
+
+  ]
+
+  dup boot.splitstr join bc.cmd over strcpy pop free
+  dup { free } forall free
+
+  pop bc.cmd menu.entry
+
+} def
+
+
+% ( edit_object ) ==> ( cmdline )
 %
 % grub:
 %   just return
 %
 % syslinux & lilo:
-%   check if the commmand line starts with the current kernel name or
-%   "linux"; if not, put the kernel name in front of the command line. (This
-%   is to keep compatibility with the old scheme requiring the user to write
-%   the kernel name explicitly.)
+%   add kernel name at start of command line
 %
-/buildcmdline {
-  menu.entry 0 lt { -1 return } if
-  menu.entry menu.texts length ge { -1 return } if
-
-  /bc.opts exch def
-  /bc.kernel menu.texts menu.entry get def
-
-  grub {
-
-    /bc.addkernel false def
-
-  } {
-
-    /bc.addkernel true def
-
-    [ bc.kernel "linux" ] 0 over length 1 sub 1 exch {
-      over exch get
-
-      bc.opts over eq {
-        /bc.addkernel false def
-      } {
-        bc.opts over strstr 1 eq {
-           bc.opts over length get ' ' eq {
-             /bc.addkernel false def
-           } if
-        } if
-      } ifelse
-
-      pop
-
-      bc.addkernel not { exit } if
-
-    } for
-
-    pop
-
-    % special case: option is identical to label
-    bc.kernel "apic" eq
-    bc.kernel "noapic" eq or
-    bc.kernel "nolapic" eq or {
-      /bc.addkernel true def
-    } if
-
-  } ifelse
-
+/build1cmdline {
   syslinux {
-    /add_suffix xmenu.bits .xm_current get bits.suffix exch get def
-
     % set new working directory
     xmenu.bits .xm_current get 1 eq { 64bit_boot_dir } { 32bit_boot_dir } ifelse
     dup .undef ne {
@@ -342,60 +329,58 @@
       pop
     } ifelse
   } if
-
   % getcwd 0 300 moveto show trace
 
-  bc.addkernel {
-    alt.kernel { alt.kernel } { bc.kernel } ifelse
-    dup "linux" eq add_suffix .undef ne and {
-      add_suffix exch "%s%s "
-    } {
-      "%s "
-    } ifelse
-    bc.cmd sprintf
-  } {
+  % lilo & syslinux: prepend kernel/label name
+  grub {
     bc.cmd 0 0 put
+  } {
+    menu.texts menu.entry get "%s " bc.cmd sprintf
   } ifelse
 
-  /add_suffix 32 string def
-
   syslinux {
+    /splash_file 32 string def
+
     video.modes.list xmenu.video .xm_current get get
     dup .vm_mode get 0 ge {
       dup .vm_height get exch .vm_width get
-      ",%04d%04d.spl" add_suffix sprintf
+      ",%04d%04d.spl" splash_file sprintf
     } { pop } ifelse
 
     % find out splash size for kernel loading progress bar
-    add_suffix 1 add filesize dup .undef ne {
+    splash_file 1 add filesize dup .undef ne {
       sectorsize 1 sub add sectorsize div /progress_extra exch def
     } {
       pop
-      add_suffix 0 0 put	% empty string
+      splash_file 0 0 put	% empty string
     } ifelse
   } if
 
-  cmdline.hidden "" ne {
-    add_suffix {
-      /bc.tmp cmdline.hidden length add_suffix length add string def
-      cmdline.hidden "initrd" bootopt.find dup .undef ne {
-        skipnonspaces
-        dup
-        dup 0 get over 0 0 put
-        add_suffix cmdline.hidden "%s%s" bc.tmp sprintf
-        0 exch put
-        "%s" bc.tmp dup length add sprintf
+  /cmdline.hidden over dup length .inp_hidden ge { .inp_hidden get } { pop .undef } ifelse def
+
+  cmdline.hidden {
+    cmdline.hidden "" ne { 
+      splash_file {
+        /bc.tmp cmdline.hidden length splash_file length add string def
+        cmdline.hidden "initrd" bootopt.find dup .undef ne {
+          skipnonspaces
+          dup
+          dup 0 get over 0 0 put
+          splash_file cmdline.hidden "%s%s" bc.tmp sprintf
+          0 exch put
+          "%s" bc.tmp dup length add sprintf
+        } {
+          pop
+          bc.tmp cmdline.hidden strcpy pop
+        } ifelse
+
+        bc.tmp "%s " bc.cmd dup length add sprintf
+
+        bc.tmp free /bc.tmp .undef def
       } {
-        pop
-        bc.tmp cmdline.hidden strcpy pop
+        cmdline.hidden "%s " bc.cmd dup length add sprintf
       } ifelse
-
-      bc.tmp "%s " bc.cmd dup length add sprintf
-
-      bc.tmp free /bc.tmp .undef def
-    } {
-      cmdline.hidden "%s " bc.cmd dup length add sprintf
-    } ifelse
+    } if
 
     syslinux {
       % find out initrd size for kernel loading progress bar
@@ -406,6 +391,8 @@
       } ifelse
     } if
   } if
+
+  /splash_file xfree
 
   syslinux {
     video.modes.list xmenu.video .xm_current get get .vm_mode get
@@ -450,14 +437,17 @@
     } if
   } if
 
-  % complete cmdline
-  bc.cmd bc.opts strcat " " strcat pop
+  % add user-supplied options
 
-  % remove all but last 'vga' option
-  {
-    bc.cmd "vga" bootopt.find2 .undef eq { exit } if
-    bc.cmd "vga" bootopt.remove free
-  } loop
+  bc.cmd exch .inp_buf get strcat " " strcat pop
+
+  % remove all but last 'vga' & 'initrd' options
+  [ "vga" "initrd" ] dup {
+    {
+      bc.cmd over bootopt.find2 .undef eq { pop exit } if
+      bc.cmd over bootopt.remove free
+    } loop
+  } forall free
 
   bc.cmd "driverupdate" bootopt.find dup .undef ne {
     % exclude 'driverupdate=0 and driverupdate=1'
@@ -516,7 +506,7 @@
   % remove final space
   bc.cmd dropspaces
 
-  bc.cmd menu.entry
+  bc.cmd
 } def
 
 
@@ -542,194 +532,15 @@
       window.show
 
   syslinux {
-    enough_mem not livecd and {
+    32+64bit_source not {
 
-      notimeout nomem_popup
+      64bit {
+        64bit_source not { notimeout 32bit_popup } if
+      } {
+        64bit_source { notimeout 64bit_popup } if
+      } ifelse
 
-    } {
-
-      32+64bit_source not {
-
-        64bit {
-          64bit_source not { notimeout 32bit_popup } if
-        } {
-          64bit_source { notimeout 64bit_popup } if
-        } ifelse
-
-      } if
-
-    } ifelse
-  } if
-
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Setup boot option input field.
-%
-% ( ) == > ( )
-%
-/bootoptions.init {
-  window.current .color.fg get setcolor
-  window.current .ed.font get setfont
-
-  boot.ed edit.hidecursor
-  menu.args menu.entry get
-  menu.texts menu.entry get
-  bootpromptmap
-
-  boot.show {
-    boot.ed over edit.init
-    "" ne { boot.ed ' ' edit.input } if
-  } {
-    "%s" boot.ed 3 get sprintf
-  } ifelse
-
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Split command line into hidden and normal part.
-%
-% ( cmdline_args menu_text ) == > ( new_cmdline_args )
-%
-% alt.kernel is set if a different kernel should be used (this feature should
-% no longer be needed).
-%
-/bootpromptmap {
-  /alt.kernel .undef def
-
-  syslinux {
-    dup "failsafe" eq
-    over "noacpi" eq or
-    over "noapic" eq or
-    over "nolapic" eq or
-    over "apic" eq or
-    over "manual" eq or
-    over "rescue" eq or
-    { /alt.kernel "linux" def } if
-  } if
-
-  pop
-
-  /cmdline exch def
-
-  cmdline "showopts" getoption
-  dup "" eq {
-    cmdline.shown 0 0 put
-    pop cmdline "%s" cmdline.shown sprintf
-    cmdline.hidden 0 0 put
-  } {
-    "showopts" length add skipspaces
-    "%s" cmdline.shown sprintf
-    cmdline "%s" cmdline.hidden sprintf
-    cmdline.hidden "showopts" getoption 0 0 put
-  } ifelse
-
-  cmdline.shown dropspaces
-  cmdline.hidden dropspaces
-
-  cmdline.shown
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% Get boot option.
-%
-% ( cmdline option_name ) ==> ( option_start )
-%
-/getoption {
-  /go.name exch def
-  /go.cmdline exch def
-  /go.pos 0 def
-  {
-    go.cmdline go.pos add go.name strstr dup {
-       1 sub /go.pos exch def
-
-       go.cmdline go.pos iswordboundary
-       go.cmdline go.pos go.name length add iswordboundary
-       and {
-         go.cmdline go.pos add exit
-       } {
-         /go.pos go.pos 1 add def
-       } ifelse
-    } {
-      pop "" exit
-    } ifelse
-  } loop
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-/redrawmenu {
-  menu.text.normal setcolor
-
-  /x menu.start.x def
-  /y menu.start.y def
-
-  0 1 menu.visible.entries 1 sub {
-   x y moveto currentpoint menu.bar.width menu.bar.height image
-   x menu.text.xofs add y menu.text.yofs add moveto
-   menu.texts exch menu.shift add get menuitemmap
-   currentfont exch font.large setfont show setfont
-   /y y menu.item.height add def
-  } for
-
-} def
-
-
-% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-% ( entry status ) ==> ( )
-%
-% status:
-%  false	not selected
-%  true		selected
-%
-/MenuSelect {
-  /menu.status exch def
-
-  /menu.idx over def
-
-  menu.shift sub
-  menu.item.height mul menu.start.y add
-  menu.start.x exch
-  moveto
-
-  currentpoint
-  menu.status {
-    menu.bar.color setcolor
-    currenttransparency
-    ptheme { 120 } { 70 } ifelse settransparency
-    menu.bar.width menu.bar.height
-    fillrect
-    settransparency
-  } {
-    currentpoint menu.bar.width menu.bar.height image
-  } ifelse
-  moveto
-
-  menu.text.xofs menu.text.yofs rmoveto
-  menu.status {
-    menu.text.select
-  } {
-    menu.text.normal
-  } ifelse
-  setcolor
-  menu.texts menu.idx get menuitemmap
-  currentfont exch font.large setfont show setfont
-
-  menu.status {
-    % init boot options
-    keepbootoptions .undef eq { bootoptions.init } if
-
-    % set help context
-    "main" help.setcontext
-    menu.texts menu.idx get
-    dup help.findpage "" eq {
-      pop
-    } {
-      help.setcontext
-    } ifelse
+    } if
   } if
 
 } def
@@ -804,7 +615,7 @@
 
   syslinux info.type 6 eq and {
     dup .title "Driver Update" put
-    /info.msg "Put the SUSE Linux CD-ROM back into the drive." def
+    /info.msg "Put the openSUSE CD-ROM back into the drive." def
   } if
 
   dup .text info.msg put
@@ -832,7 +643,7 @@
   window.current .color.bg get setcolor
   fillrect  
 
-  "%3u%%" 8 dup string dup 5 1 roll snprintf
+  "%3u%%" 8 string dup 4 1 roll sprintf
 
   dup strsize pop neg progress.text.x add progress.text.y moveto
   window.current .color.fg get setcolor
@@ -864,7 +675,7 @@
 /ProgressInit {
   /progress.kname exch def
 
-  boot.ed edit.hidecursor
+  boot.ed.list { edit.hidecursor } forall
 
   /dia window.dialog def
 
@@ -920,7 +731,7 @@
 
   load_error {
     /load_error false def
-    boot.ed edit.showcursor
+    boot.ed.list boot.window .ed.focus get get edit.showcursor
   } if
 } def
 
@@ -1013,9 +824,9 @@
   dup "memtest" eq over "memtest86" eq or { pop txt_memtest return } if
   syslinux {
     livecd {
-      dup "linux"     eq { pop "SUSE Linux 10.1 LiveCD (english)" return } if
+      dup "linux"     eq { pop "openSUSE 10.2 LiveCD (english)" return } if
       dup "failsafe"  eq { pop "LiveCD - Safe Settings" return } if
-      dup "linux2"    eq { pop "SUSE Linux 10.1 LiveCD (deutsch)" return } if
+      dup "linux2"    eq { pop "openSUSE 10.2 LiveCD (deutsch)" return } if
       dup "failsaf2"  eq { pop "LiveCD - Sichere Einstellungen" return } if
       dup "kde"       eq { pop "LiveCD - KDE" return } if
       dup "gnome"     eq { pop "LiveCD - GNOME" return } if
@@ -1023,7 +834,7 @@
       dup "linux"     eq { pop txt_install        return } if
       dup "failsafe"  eq { pop txt_safe_install   return } if
     } ifelse
-    dup "live"      eq { pop "SUSE Linux 10.1 LiveCD" return } if
+    dup "live"      eq { pop "openSUSE 10.2 LiveCD" return } if
     dup "noacpi"    eq { pop txt_noacpi_install return } if
     dup "noapic"    eq { pop txt_noapic_install return } if
     dup "nolapic"    eq { pop txt_nolapic_install return } if
@@ -1173,7 +984,7 @@
     tmp dup setlang pop setkeymap
   } {
     pop
-    "en" dup setlang pop setkeymap
+    "en_US" dup setlang pop setkeymap
   } ifelse
 
   font.large setfont
@@ -1194,31 +1005,26 @@
 
   /menu.bar.color      white       def
 
+  /menu.bar.min.width  300 def
+
   small_layout {
-    /frame1.pos  { 120 110 } def
-    /frame1.width  400 def
+    /menu.start.x 130 def
+    /menu.start.y 122 def
   } {
-    /frame1.pos  { 200 192 } def
-    /frame1.width  400 def
+    /menu.start.x 210 def
+    /menu.start.y 204 def
   } ifelse
 
   ptheme {
-    /frame1.pos  { 210 170 } def
-    /frame1.width  365 def
+    /menu.start.x 220 def
+    /menu.start.y 182 def
   } if
 
-  /menu.start.x frame1.pos pop 10 add def
-  /menu.start.y frame1.pos exch pop 12 add def
+  /menu.bar.width menu.bar.min.width def
 
-  /menu.bar.width frame1.width 20 sub def
   /menu.max.entries 7 def
 
-  /boot.label.len 243 def
-
-  /boot.pos { boot.label.len 10 add ptheme { 480 } { small_layout { 380 } { 490 } ifelse } ifelse } def
-
-  /boot.buf.size cmdlinelength def
-  /boot.buf boot.buf.size string def
+  /boot.pos { 253 ptheme { 480 } { small_layout { 380 } { 490 } ifelse } ifelse } def
 
   % false: no boot options line initially
   /boot.show true def
@@ -1466,14 +1272,10 @@
 /nomem_popup {
   window.dialog
 
-  dup .title "Cool computer, but..." put
-  dup .text
-    livecd.mem.show
-    "Sorry, but SUSE Linux 10.1 LiveCD needs at least %dMB main memory."
-    dup length 32 add string dup 4 1 roll sprintf
-  put
+  dup .title "Sorry, but..." put
+  dup .text mem.show put
   dup .buttons [
-    button.reboot button.default actReboot actNoClose or button.setaction
+    button.ok button.default actNothing button.setaction
   ] put
   dup window.init
       window.show
@@ -1583,14 +1385,13 @@ dup .undef eq { pop "back-low.jpg" findfile } if
 /font.normal "16x16.fnt" findfile def
 /font.large font.normal def
 
-/cmdline.hidden cmdlinelength string def
-/cmdline.shown cmdlinelength string def
-
 /kroete.dir 0 def
 
 /debug 0 def
 
-ptheme small_layout or CapsLock or {
+ptheme small_layout or CapsLock or
+  true or
+{
   /bsplash.done { } def
 } {
   bsplash.show

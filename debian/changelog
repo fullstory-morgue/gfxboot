@@ -1,8 +1,45 @@
-gfxboot (3.2.23-3) UNRELEASED; urgency=low
+gfxboot (3.2.35-1) unstable; urgency=low
 
-  * NOT RELEASED YET
+  * New upstream release:
+    - started internal rewrite to run all code in 32 bit pm
+    - fixed Zen theme
+    - added Catalan & Vietnamese
+    - better debug window
+    - fixed minor file reading bug
+    - better internal locale handling
+    - separated en locale into en_GB & en_US
+    - more than one boot option line, finished (#160066)
+    - added 'about' button
+    - make it openSUSE
+    - added xen test config
+    - use disk image, not floppy for grub testing
+    - updated Zen pictures
+    - made full panel default
+    - ShiftTab now works
+    - remove duplicate video modes (#145749)
+    - menu bar fits menu text width
+    - made 'Text Mode' translatable (#179582)
+    - workaround for interlaced mode issue on some ATI cards (#177982)
+    - use disk image, not floppy for lilo testing
+    - major code cleanup
+    - removed ancient compatibility code
+    - allow more than one boot option line (for xen)
+    - using beta pictures
+    - translations updated
+    - minor Zen theme change
+    - translations updated
+    - added Zen texts & theme
+    - add check to handle insufficient real mode handling in Xen on VMX
+      machines (#175473)
+    - allow per menu entry memory checks via mem.min[<label>] and
+      mem.msg[<label>] in gfxboot.cfg
+    - fix random memory corruption when trying to open a nonexistent
+      file (#165846)
+    - translations updated (#170561)
+    - implemented inbyte/outbyte to access i/o space (#170167)
+    - fix drawing bug (#166914)
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun, 16 Apr 2006 21:20:56 +0200
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Wed,  9 Aug 2006 12:09:46 +0200
 
 gfxboot (3.2.23-2) unstable; urgency=low
 

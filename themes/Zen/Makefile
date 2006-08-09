@@ -1,6 +1,6 @@
 BINDIR      := $(shell [ -x ../../mkbootmsg ] && echo ../../ )
 
-PRODUCT      = "openSUSE 10.2"
+PRODUCT      = "ZENworks Imaging 8.0"
 export PRODUCT
 
 HELP2TXT     = $(BINDIR)help2txt
