@@ -1,4 +1,4 @@
-			bits 16
+			bits 32
 
 			extern jpeg_get_size
 			extern jpeg_decode
@@ -10,6 +10,7 @@
 %include		"vocabulary.inc"
 %include		"modplay_defines.inc"
 %include		"jpeg.inc"
+
 
 ; some type definitions from mkbootmsg.c
 ; struct file_header_t
@@ -28,19 +29,23 @@ sizeof_file_header_t	equ 32
 
 
 ; font file header definition
-; struct font_header_t
-foh_magic		equ 0
-foh_entries		equ 4
-foh_height		equ 6
-foh_line_height		equ 7
-sizeof_font_header_t	equ 8
+foh.magic		equ 0
+foh.entries		equ 4
+foh.height		equ 8
+foh.baseline		equ 9
+foh.line_height		equ 10
+foh.size		equ 11
 
-; char data header definition
-; struct char_header_t
-ch_ofs			equ 0
-ch_c			equ 2
-ch_size			equ 4
-sizeof_char_header_t	equ 8		; must be 8, otherwise change find_char
+
+; char bitmap definitions
+; must match values in mkblfont.c
+cbm_gray_bits		equ 4
+cbm_gray_bit_count	equ 3
+
+cbm_max_gray		equ (1 << cbm_gray_bits) - 3
+cbm_rep_black		equ cbm_max_gray + 1
+cbm_rep_white		equ cbm_max_gray + 2
+
 
 ; struct playlist
 pl_file			equ 0		; actually file index + 1
@@ -53,13 +58,39 @@ pl_end			equ 12
 sizeof_playlist		equ 16
 playlist_entries	equ 4
 
+
 ; struct link
-li_label		equ 0
-li_text			equ 2
-li_x			equ 4
-li_row			equ 6
-sizeof_link		equ 8		; search for 'sizeof_link'!
+li.label		equ 0
+li.text			equ 4
+li.x			equ 8
+li.row			equ 10
+li.size			equ 12		; search for 'li.size'!
 link_entries		equ 64
+
+
+; sysconfig data
+sc.bootloader		equ 0
+sc.sector_shift		equ 1
+sc.media_type		equ 2
+sc.failsafe		equ 3
+sc.sysconfig_size	equ 4
+sc.boot_drive		equ 5
+sc.callback		equ 6
+sc.bootloader_seg	equ 8
+sc.reserved_1		equ 10
+sc.user_info_0		equ 12
+sc.user_info_1		equ 16
+sc.bios_mem_size	equ 20
+sc.xmem_0		equ 24
+sc.xmem_1		equ 26
+sc.xmem_2		equ 28
+sc.xmem_3		equ 30
+sc.file			equ 32
+sc.archive_start	equ 36
+sc.archive_end		equ 40
+sc.mem0_start		equ 44
+sc.mem0_end		equ 48
+
 
 ; enum_type_t
 t_none			equ 0
@@ -86,6 +117,7 @@ t_exit			equ t_code + 60h
 
 param_stack_size	equ 1000
 ret_stack_size		equ 1000
+
 
 ; various error codes
 pserr_ok			equ 0
@@ -143,28 +175,32 @@ jt_password_init	dw gfx_password_init
 jt_password_done	dw gfx_password_done
 
 			align 4, db 0
-; the memory area we are working with
-mem			dd 0		; (lin) data start address
-mem_free		dd 0		; (lin) start of free area for malloc
-mem_max			dd 0		; (lin) end address
-mem_archive		dd 0		; (lin) archive start address (0 -> none), ends at mem_free
+file.start		dd 0		; the file we are in
 
-malloc.areas		equ 4
+archive.start		dd 0		; archive start address (0 -> none)
+archive.end		dd 0		; archive end
+
+mem0.start		dd 0		; free low memory area start
+mem0.end		dd 0		; dto, end
+
+malloc.areas		equ 5
 malloc.start		dd 0
 malloc.end		dd 0
 			; start, end pairs
 malloc.area		times malloc.areas * 2 dd 0
 
-vbe_buffer		dd 0		; (seg:ofs) buffer for vbe calls
-vbe_mode_list		dd 0		; (seg:ofs) list with (up to 100h) vbe modes
-vbe_info_buffer		dd 0		; (seg:ofs) buffer for vbe gfx card info
+vbe_buffer		dd 0		; (lin) buffer for vbe calls
+vbe_mode_list		dd 0		; (lin) list with (up to 100h) vbe modes
+vbe_info_buffer		dd 0		; (lin) buffer for vbe gfx card info
 infobox_buffer		dd 0		; (lin) temp buffer for InfoBox messages
 
 local_stack		dd 0		; ofs local stack (8k)
-			dw 0		; dto, seg
+local_stack.ofs		equ local_stack
+local_stack.seg		dw 0		; dto, seg
 old_stack		dd 0		; store old esp value
-			dw 0		; dto, ss
-stack_size		dw 0		; in bytes
+old_stack.ofs		equ old_stack
+old_stack.seg		dw 0		; dto, ss
+stack.size		dd 0		; in bytes
 tmp_stack_val		dw 0		; needed for stack switching
 
 pscode_start		dd 0		; (lin)
@@ -181,29 +217,27 @@ pscode_error		dw 0		; error code (if any)
 pscode_type		db 0		; current instr type
 
 			align 4, db 0
-dict			dd 0		; seg:ofs
-dict_size		dw 0		; dict entries
+dict			dd 0		; lin
+dict.size		dd 0		; dict entries
 
-boot_cs			dw 0		; seg
-boot_sysconfig		dw 0		; ofs
-boot_callback		dd 0 		; seg:ofs
+boot.base		dd 0		; bootloader segment
+boot.sysconfig		dd 0		; bootloader parameter block
+boot.callback		dd 0 		; seg:ofs
 
-pstack			dd 0		; (seg:ofs)
-pstack_size		dw 0		; entries
-pstack_ptr		dw 0
-rstack			dd 0		; (seg:ofs)
-rstack_size		dw 0		; entries
-rstack_ptr		dw 0
+pstack			dd 0		; data stack
+pstack.size		dd 0		; entries
+pstack.ptr		dd 0		; index of current tos
+rstack			dd 0		; code stack
+rstack.size		dd 0		; entries
+rstack.ptr		dd 0		; index of current tos
 
 image			dd 0		; (lin) current image
 image_width		dw 0
 image_height		dw 0
-image_data		dd 0		; (seg:ofs)
-image_pal		dd 0		; (seg:ofs)
 image_type		db 0		; 0:no image, 1: pcx, 2:jpeg
 
 pcx_line_starts		dd 0		; (lin) table of line starts
-jpg_static_buf_seg	dw 0		; seg
+jpg_static_buf		dd 0		; (lin) tmp data for jpeg decoder
 
 screen_width		dw 0
 screen_height		dw 0
@@ -211,48 +245,58 @@ screen_vheight		dw 0
 screen_mem		dw 0		; mem in 64k
 screen_line_len		dd 0
 
-setpixel		dw setpixel_8		; function that sets one pixel
-setpixel_a		dw setpixel_a_8		; function that sets one pixel
-setpixel_t		dw setpixel_8		; function that sets one pixel
-setpixel_ta		dw setpixel_a_8		; function that sets one pixel
-getpixel		dw getpixel_8		; function that gets one pixel
+setpixel		dd setpixel_8		; function that sets one pixel
+setpixel_a		dd setpixel_a_8		; function that sets one pixel
+setpixel_t		dd setpixel_8		; function that sets one pixel
+setpixel_ta		dd setpixel_a_8		; function that sets one pixel
+getpixel		dd getpixel_8		; function that gets one pixel
 
 
 transp			dd 0		; transparency
 
-; 0..100h
-brightness		dw 100h
-
 			align 4, db 0
 ; current font description
-font			dd 0		; (seg:ofs) to font header
-font_entries		dw 0		; chars in font
-font_height		dw 0
-font_line_height	dw 0
-font_properties		db 0		; bit 0: pw mode (show '*')
-font_res1		db 0		; alignment
+font			dd 0		; (lin)
+font.entries		dd 0		; chars in font
+font.height		dw 0
+font.baseline		dw 0
+font.line_height	dw 0
+font.properties		db 0		; bit 0: pw mode (show '*')
+font.res1		db 0		; alignment
 
 ; console font
-cfont			dd 0		; (seg:ofs) to bitmap
-cfont_height		dw 0
+cfont.lin		dd 0		; console font bitmap
+cfont_height		dd 0
 con_x			dw 0		; cursor pos in pixel
 con_y			dw 0		; cursor pos in pixel, *must* follow con_x
 
 
 ; current char description
-chr_bitmap		dw 0		; ofs rel. to [font]
-chr_x_ofs		dw 0
-chr_y_ofs		dw 0
-chr_real_width		dw 0
-chr_real_height		dw 0
-chr_width		dw 0
+chr.buf			dd 0		; buffer for antialiased fonts
+chr.buf_len		dd 0
+chr.pixel_buf		dd 0
+chr.data		dd 0		; encoded char data
+chr.bitmap		dd 0		; start of encoded bitmap; bit offset rel to chr.data
+chr.bitmap_width	dw 0
+chr.bitmap_height	dw 0
+chr.x_ofs		dw 0
+chr.y_ofs		dw 0		; rel. to baseline
+chr.x_advance		dw 0
+chr.type		db 0		; 0 = bitmap, 1: gray scale
+
+chr.gray_values
+%assign i 0
+%rep cbm_max_gray + 1
+			db (i * 255)/cbm_max_gray
+%assign i i + 1
+%endrep
 
 utf8_buf		times 8 db 0
 
 ; pointer to currently active palette (3*100h bytes)
-gfx_pal			dd 0		; (seg:ofs)
+gfx_pal			dd 0		; (lin)
 ; pointer to tmp area (3*100h bytes)
-gfx_pal_tmp		dd 0		; (seg:ofs)
+gfx_pal_tmp		dd 0		; (lin)
 ; number of fixed pal values
 pals			dw 0
 
@@ -266,8 +310,7 @@ pixel_bytes		dd 0		; pixel size in bytes
 
 ; segment address of writeable window
 window_seg_w		dw 0
-; segment address of readable window
-; if 0 -> gfx_window_seg_w is rw
+; segment address of readable window (= gfx_window_seg_w if 0)
 window_seg_r		dw 0
 ; ganularity units per window
 window_inc		db 0
@@ -280,7 +323,7 @@ gfx_cur_x		dw 0
 gfx_cur_y		dw 0		; must follow gfx_cur_x
 gfx_width		dw 0
 gfx_height		dw 0
-line_wrap		dw 0
+line_wrap		dd 0
 
 ; clip region (incl)
 clip_l			dw 0		; left, incl
@@ -304,36 +347,32 @@ gfx_color3		dd 0		; color #3 (selected link color)
 gfx_color_rgb		dd 0		; current color (rgb)
 transparent_color	dd -1
 char_eot		dd 0		; 'end of text' char
-last_label		dw 0		; ofs, seg = [row_start_seg]
-page_title		dw 0		; ofs, seg = [row_start_seg]
-max_rows		dw 0		; max. number of text rows
-cur_row			dw 0		; current text row (0 based)
-cur_row2		dw 0		; dto, only durig formatting
-start_row		dw 0		; start row for text output
-cur_link		dw 0		; link count
-sel_link		dw 0		; selected link
+last_label		dd 0		; lin
+page_title		dd 0		; lin
+max_rows		dd 0		; max. number of text rows
+cur_row			dd 0		; current text row (0 based)
+cur_row2		dd 0		; dto, only during formatting
+start_row		dd 0		; start row for text output
+cur_link		dd 0		; link count
+sel_link		dd 0		; selected link
 txt_state		db 0		; bit 0: 1 = skip text
 					; bit 1: 1 = text formatting only
-run_idle		db 0
-
 textmode_color		db 7		; fg color for text (debug) output
 keep_mode		db 0		; keep video mode in gfx_done
 
-			align 2, db 0
-row_start_seg		dw 0
-row_start_ofs		times max_text_rows dw 0
+			align 4, db 0
 
-			; note: link_list relies on row_start_seg
-link_list		times sizeof_link * link_entries db 0
+idle.draw_buffer	dd 0		; some drawing buffer
+idle.data1		dd 0		; some data
+idle.data2		dd 0		; some more data
+idle.run		db 0		; run idle loop
+idle.invalid		db 0		; idle loop has been left
 
-; currently used tint color (call load_palette to make changes visible)
-gfx_cs_tint_r		db 0
-gfx_cs_tint_g		db 0
-gfx_cs_tint_b		db 0
-gfx_cs_r		db 0
-gfx_cs_g		db 0
-gfx_cs_b		db 0
+			align 4, db 0
+row_text		times max_text_rows dd 0
 
+			; note: link_list relies on row_start
+link_list		times li.size * link_entries db 0
 
 			; max label size: 32
 label_buf		times 35 db 0
@@ -345,7 +384,7 @@ num_buf_end		db 0
 
 ; temp data for printf
 tmp_write_data		times 10h dd 0
-tmp_write_num		dw 0
+tmp_write_num		dd 0
 tmp_write_sig		db 0
 tmp_write_cnt		db 0
 tmp_write_pad		db 0
@@ -371,7 +410,7 @@ edit_y			dw 0
 edit_width		dw 0
 edit_height		dw 0
 edit_bg			dd 0		; (lin)
-edit_buf		dd 0		; (seg:ofs)
+edit_buf		dd 0		; (lin)
 edit_buf_len		dw 0
 edit_buf_ptr		dw 0
 edit_cursor		dw 0
@@ -397,10 +436,11 @@ sound_int_active	db 0
 sound_playing		db 0
 sound_sample		dd 0
 sound_buf		dd 0		; (seg:ofs)
-sound_start		dw 0		; rel. to sound_buf
-sound_end		dw 0		; rel. to sound_buf
+sound_buf.lin		dd 0		; buffer for sound player
+sound_start		dd 0		; rel. to sound_buf
+sound_end		dd 0		; rel. to sound_buf
 playlist		times playlist_entries * sizeof_playlist db 0
-mod_buf			dd 0		; (seg:ofs)
+mod_buf			dd 0 		; buffer for mod player
 int8_count		dd 0
 cycles_per_tt		dd 0
 cycles_per_int		dd 0
@@ -412,6 +452,17 @@ tmp_var_0		dd 0
 tmp_var_1		dd 0
 tmp_var_2		dd 0
 tmp_var_3		dd 0
+
+ddc_timings		dw 0		; standard ddc timing info
+ddc_xtimings		dd 0		; converted standard timing/final timing value
+ddc_xtimings1		dd 0, 0, 0, 0
+ddc_mult		dd 0, 1		; needed for ddc timing calculation
+			dd 3, 4
+			dd 4, 5
+			dd 9, 16
+
+fsc_bits		dw 0, 0x0004, 0x4000, 0x0200, 0x0100, 0x0200, 0, 0x4000
+			dw 0x0200, 0, 0, 0, 0, 0, 0, 0
 
 			align 2
 pm_idt			dw 7ffh			; idt for pm
@@ -431,29 +482,36 @@ rm_seg:
 .gs			dw 0
 
 			align 4
+
+prog.base		dd 0			; our base address
+
 gdt			dd 0, 0			; null descriptor
 .4gb_d32		dd 0000ffffh, 00cf9300h	; 4GB segment, data, use32
 .4gb_c32		dd 0000ffffh, 00cf9b00h	; 4GB segment, code, use32
-.prog_c32		dd 0000ffffh, 00cf9b00h	; our program as code, use32
-.prog_d16		dd 0000ffffh, 008f9300h	; dto, data, use16
-.prog_c16		dd 0000ffffh, 008f9b00h	; dto, code, use16
+			; see gdt_init
+.prog_c32		dd 00000000h, 00409b00h	; our program as code, use32
+.prog_d16		dd 00000000h, 00009300h	; dto, data, use16
+.prog_c16		dd 00000000h, 00009b00h	; dto, code, use16
+.data_d16		dd 00000000h, 00009300h	; 64k segment, data, use16
+
+.screen_r16		dd 00000000h, 00009300h ; 64k screen, data, use16
+.screen_w16		dd 00000000h, 00009300h ; 64k screen, data, use16
 gdt_size		equ $-gdt
 
 ; gdt for pm switch
-pm_seg			equ 8
-pm_seg.4gb_d32		equ 8
-pm_seg.4gb_c32		equ 10h
-pm_seg.prog_c32		equ 18h
-pm_seg.prog_d16		equ 20h
-pm_seg.prog_c16		equ 28h
-
-pm_large_seg		db 0			; active large segment mask
-pm_seg_mask		db 0			; segment bit mask (1:es, 2:fs, 3:gs)
+pm_seg.4gb_d32		equ 8			; covers all 4GB, default ss, es, fs, gs
+pm_seg.4gb_c32		equ 10h			; dto, but executable (for e.g., idt)
+pm_seg.prog_c32		equ 18h			; default cs, use32
+pm_seg.prog_d16		equ 20h			; default ds
+pm_seg.prog_c16		equ 28h			; default cs, use16
+pm_seg.data_d16		equ 30h			; free to use
+pm_seg.screen_r16	equ 38h			; graphics window, for reading
+pm_seg.screen_w16	equ 40h			; graphics window, for writing
 
 %if debug
 ; debug texts
-dmsg_01			db 'static memory: %p - %p', 10, 0
-dmsg_02			db '     malloc %d: %p - %p', 10, 0
+dmsg_01			db 10, 'Press a key to continue...', 0
+dmsg_02			db '     mem area %d: 0x%08x - 0x%08x', 10, 0
 dmsg_03			db '%3u: addr 0x%06x, size 0x%06x+%u, ip 0x%04x, %s', 10, 0
 dmsg_04			db 'oops: block at 0x%06x: size 0x%06x is too small', 10, 0
 dmsg_04a		db 'oops: 0x%06x > 0x%06x', 10, 0
@@ -525,14 +583,17 @@ sizeof_fb_entry		equ 8
 		mov [tmp_write_data + %1 * 4],%2
 %endmacro
 
+
 %macro		pf_arg_ushort 2
 		and word [tmp_write_data + %1 * 4 + 2],byte 0
 		mov [tmp_write_data + %1 * 4],%2
 %endmacro
 
+
 %macro		pf_arg_uint 2
 		mov [tmp_write_data + %1 * 4],%2
 %endmacro
+
 
 %macro		pf_arg_char 2
 		push eax
@@ -541,6 +602,7 @@ sizeof_fb_entry		equ 8
 		pop eax
 %endmacro
 
+
 %macro		pf_arg_short 2
 		push eax
 		movsx eax,%2
@@ -548,146 +610,59 @@ sizeof_fb_entry		equ 8
 		pop eax
 %endmacro
 
+
 %macro		pf_arg_int 2
 		mov [tmp_write_data + %1 * 4],%2
 %endmacro
 
-%macro		lin2segofs 3
-		push %1
-		call lin2so
-		pop %3
-		pop %2
-%endmacro
 
-%macro		segofs2lin 3
-		push %1
-		push %2
-		call so2lin
-		pop %3
-%endmacro
-
-%macro		lin2seg 3
-		push %1
-		%ifidn %2,es
-		  call _lin2es
-		%elifidn %2,fs
-		  call _lin2fs
-		%elifidn %2,gs
-		  call _lin2gs
-		%else
-		  %error "invalid segment argument"
+%macro		pm_enter 0
+%%j_pm_1:
+		call switch_to_pm
+%%j_pm_2:
+		%if %%j_pm_2 - %%j_pm_1 != 3
+		  %error "pm_enter: not in 16 bit mode"
 		%endif
-		pop %3
+
+		bits 32
 %endmacro
 
 
-%macro		debug_print 2
-		push %1
-		pop dword [tmp_write_data]
-		push es
-		push fs
-		pushad
-		mov si,%%msg
-		call printf
-		popad
-		pop fs
-		pop es
-		jmp %%cont
-%%msg		db %2, ': %x', 10, 0
-%%cont:
-%endmacro
-
-
-%macro		debug_printw 2
-		push %1
-		pop dword [tmp_write_data]
-		push es
-		push fs
-		pushad
-		mov si,%%msg
-		call printf
-		call get_key
-		popad
-		pop fs
-		pop es
-		jmp %%cont
-%%msg		db %2, ': %x', 10, 0
-%%cont:
-%endmacro
-
-
-%macro		switch_to_bits 1
-		%ifidn %1,16
-%%j_16_1:
-		  jmp pm_seg.prog_c16:%%j_16_2
-%%j_16_2:
-		  %if %%j_16_2 - %%j_16_1 != 7
-		    %error "switch_to_bits 16: not in 32 bit mode"
-		  %endif
-
-		  bits 16
-		%elifidn %1,32
-%%j_32_1:
-		  jmp pm_seg.prog_c32:%%j_32_2
-%%j_32_2:
-		  %if %%j_32_2 - %%j_32_1 != 5
-		    %error "switch_to_bits 32: not in 16 bit mode"
-		  %endif
-
-		  bits 32
-		%else
-		  %error "invalid bits"
+%macro		pm_leave 0
+%%j_pm_1:
+		call switch_to_rm
+%%j_pm_2:
+		%if %%j_pm_2 - %%j_pm_1 != 5
+		  %error "pm_leave: not in 32 bit mode"
 		%endif
+
+		bits 16
 %endmacro
 
 
-%macro		pm_leave 1
-		%ifidn %1,16
-%%j_16_1:
-		  call switch_to_rm
-%%j_16_2:
-		  %if %%j_16_2 - %%j_16_1 != 3
-		    %error "pm_leave %1: not in 16 bit mode"
-		  %endif
-
-		  bits 16
-		%elifidn %1,32
-%%j_32_1:
-		  call switch_to_rm32
-%%j_32_2:
-		  %if %%j_32_2 - %%j_32_1 != 5
-		    %error "pm_leave %1: not in 32 bit mode"
-		  %endif
-
-		  bits 16
-		%else
-		  %error "invalid argument"
-		%endif
+%macro		gfx_enter 0
+		call gfx_enter
+		bits 32
 %endmacro
 
 
-%macro		pm_enter 1
-		%ifidn %1,16
-%%j_16_1:
-		  call switch_to_pm
-%%j_16_2:
-		  %if %%j_16_2 - %%j_16_1 != 3
-		    %error "pm_enter %1: not in 16 bit mode"
-		  %endif
+%macro		gfx_leave 0
+		call gfx_leave
+		bits 16
+%endmacro
 
-		  bits 16
-		%elifidn %1,32
-%%j_32_1:
-		  call switch_to_pm32
-%%j_32_2:
-		  %if %%j_32_2 - %%j_32_1 != 3
-		    %error "pm_enter %1: not in 16 bit mode"
-		  %endif
 
-		  bits 32
-		%else
-		  %error "invalid argument"
-		%endif
+%macro		rm32_call 1
+		pm_leave
+		call %1
+		pm_enter
+%endmacro
+
+
+%macro		pm32_call 1
+		pm_enter
+		call %1
+		pm_leave
 %endmacro
 
 
@@ -698,20 +673,18 @@ sizeof_fb_entry		equ 8
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Setup internal data structures.
 ;
-; Initialize something.
-;
-; eax		memory start
-; ebx		free memory start
-; ecx		memory end
-; dx		boot loader code segment
-; si		gfx_sysconfig offset
-; edi		file archive start, if any (ends at ebx)
+; esi		sysconfig data
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 16
+
 gfx_init:
+		; don't change stack layout - see gfx_enter
 		push fs
 		push es
 		push ds
@@ -721,123 +694,181 @@ gfx_init:
 
 		cld
 
-		mov [mem],eax
-		mov [mem_free],ebx
-		mov [mem_max],ecx
-		mov [mem_archive],edi
-		mov [boot_cs],dx
-		mov [boot_sysconfig],si
-
-		mov es,dx
-		mov ax,[es:si+9]
-		or ax,ax
-		jz gfx_init_20
-		mov [boot_callback+2],dx
-		mov [boot_callback],ax
-gfx_init_20:
-
-		mov eax,cr0
-		shr al,1		; in prot mode (maybe vm86)?
-		jc gfx_init_90
+		mov [boot.sysconfig],esi
 
 		; setup gdt, to get pm-switching going
 		call gdt_init
 
-		; xen currently can't handle real mode 4GB selectors on
-		; Intel VMX, so we do a quick check here whether it really
-		; works
+		; we can run in protected mode but can't handle ints until
+		; after pm_init
+		cli
 
-		xor eax,eax
-		lin2seg eax,es,eax
-		mov ax,es
-		call lin_seg_off
-		cmp ax,1		; xen will have returned 0 to match the base address
-		jc gfx_init_90
+		pm_enter
+
+		mov esi,[boot.sysconfig]
+		movzx eax,word [es:esi+sc.bootloader_seg]
+		shl eax,4
+		mov [boot.base],eax
+
+		push dword [es:esi+sc.file]
+		pop dword [file.start]
+		push dword [es:esi+sc.archive_start]
+		pop dword [archive.start]
+		push dword [es:esi+sc.archive_end]
+		pop dword [archive.end]
+		push dword [es:esi+sc.mem0_start]
+		pop dword [mem0.start]
+		push dword [es:esi+sc.mem0_end]
+		pop dword [mem0.end]
+
+		mov eax,[es:esi+sc.callback]
+		or ax,ax				; check only offset
+		jz gfx_init_20
+		mov [boot.callback],eax
+gfx_init_20:
 
 		; init malloc memory chain
 
-		push dword [mem_free]
+		push dword [mem0.start]
 		pop dword [malloc.area]
-		push dword [mem_max]
-		pop dword [malloc.area + 4]
+		push dword [mem0.end]
+		pop dword [malloc.area+4]
 
-		mov es,[boot_cs]
-		mov bx,[boot_sysconfig]
-		mov si,malloc.area + 8
-		cmp byte [es:bx],1		; syslinux
-		jnz gfx_init_30
-		mov cx,2			; 2 extended mem areas
-gfx_init_24:
-		mov ax,[es:bx+24]		; extended mem area pointer
-		or ax,ax
-		jz gfx_init_26
-		movzx edx,ax
+		mov ebx,[boot.sysconfig]
+		mov esi,malloc.area+8
+		mov ecx,malloc.areas-1			; extended mem areas
+gfx_init_30:
+		movzx eax,word [es:ebx+sc.xmem_0]	; extended mem area pointer
+		or eax,eax
+		jz gfx_init_40
+		mov edx,eax
 		and dl,~0fh
 		shl edx,16
-		mov [si],edx
+
 		and eax,0fh
 		shl eax,20
 		add eax,edx
-		mov [si+4],eax
-		add si,8
-		add bx,2
-		dec cx
-		jnz gfx_init_24
-gfx_init_26:
-		jmp gfx_init_40
+		mov [esi+4],eax
 
-gfx_init_30:
-		; 2MB - 3MB (to avoid A20 tricks)
-		mov eax,200000h
-		mov [si],eax
-		add eax,100000h		; 1MB
-		mov [si+4],eax
+		; magic: if archive was loaded in high memory, exclude it
+		cmp edx,[archive.start]
+		jnz gfx_init_35
+		mov edx,[archive.end]
+gfx_init_35:
+		mov [esi],edx
+
+		add esi,8
+		add ebx,2
+		dec ecx
+		jnz gfx_init_30
+
 gfx_init_40:
-
 		call malloc_init
 
 		; setup full pm interface
 		; can't do it earlier - we need malloc
 		call pm_init
 
-%if debug
-		mov si,hello
+		; allocate 8k local stack
+
+		mov eax,8 << 10
+		mov [stack.size],eax
+		add eax,3
+		call calloc
+		; dword align
+		add eax,3
+		and eax,~3
+		jnz gfx_init_50
+		cmp eax,100000h		; must be low memory
+		jb gfx_init_50
+		; malloc failed - keep stack
+		push word [rm_seg.ss]
+		pop word [local_stack.seg]
+		mov eax,esp
+		mov [local_stack.ofs],eax
+		jmp gfx_init_51
+gfx_init_50:
+		mov edx,eax
+		and eax,0fh
+		add eax,[stack.size]
+		mov [local_stack.ofs],eax
+		shr edx,4
+		mov [local_stack.seg],dx
+
+gfx_init_51:
+
+		; now we really start...
+		pm_leave
+
+		sti
+		call use_local_stack
+
+		pm_enter
+
+		mov esi,hello
 		call printf
-%endif
 
 		; get initial keyboard state
-		push byte 0
-		pop es
 		push word [es:417h]
 		pop word [kbd_status]
 
-%if debug
-		mov eax,[mem]
-		pf_arg_uint 0,eax
-		mov eax,[mem_max]
-		pf_arg_uint 1,eax
-
-		mov si,dmsg_01
-		call printf
+		mov eax,[boot.sysconfig]
+		mov al,[es:eax+sc.failsafe]
+		test al,1
+		jz gfx_init_58
 
 		xor ebx,ebx
 
-.malloc_deb:
+gfx_init_55:
 		pf_arg_uchar 0,bl
-		mov eax,[malloc.area + 8*ebx]
+		mov eax,[malloc.area+8*ebx]
 		pf_arg_uint 1,eax
-		mov eax,[malloc.area + 8*ebx + 4]
+		mov eax,[malloc.area+8*ebx+4]
 		pf_arg_uint 2,eax
 
+		or eax,eax
+		jz gfx_init_57
+
 		push ebx
-		mov si,dmsg_02
+		mov esi,dmsg_02
 		call printf
 		pop ebx
 
-		inc bx
-		cmp bx,malloc.areas
-		jb .malloc_deb
-%endif
+		inc ebx
+		cmp ebx,malloc.areas
+		jb gfx_init_55
+
+gfx_init_57:
+
+		mov esi,dmsg_01
+		call printf
+		call get_key
+
+gfx_init_58:
+
+		; alloc memory for palette data
+		call pal_init
+		jc gfx_init_90
+
+		mov eax,200h
+		call calloc
+		cmp eax,1
+		jc gfx_init_90
+		mov [vbe_buffer],eax
+
+		mov eax,100h
+		call calloc
+		cmp eax,1
+		jc gfx_init_90
+		mov [vbe_info_buffer],eax
+
+		; those must be low memory addresses:
+		mov eax,[gfx_pal_tmp]
+		or eax,[vbe_buffer]
+		or eax,[vbe_info_buffer]
+		cmp eax,100000h
+		cmc
+		jc gfx_init_90
 
 		call dict_init
 		jc gfx_init_90
@@ -845,66 +876,31 @@ gfx_init_40:
 		call stack_init
 		jc gfx_init_90
 
-		mov eax,[mem]
-		lin2segofs eax,es,si
-		add eax,[es:si+fh_code]
+		mov eax,[file.start]
+		mov esi,eax
+		add eax,[es:esi+fh_code]
 		mov [pscode_start],eax
-		mov eax,[es:si+fh_code_size]
+		mov eax,[es:esi+fh_code_size]
 		mov [pscode_size],eax
 
 		; now the ps interpreter is ready to run
 
-		; allocate 8k local stack
-		mov eax,8 << 10
-		mov [stack_size],ax
-		add eax,3
-		call calloc
-		cmp eax,byte 1
-		jc gfx_init_90
-		; dword align
-		add eax,3
-		and al,~3
-		lin2segofs eax,word [local_stack+4],ax
-		movzx eax,ax
-		mov dword [local_stack],eax
-		mov ax,[stack_size]
-		add [local_stack],eax
-
 		; jpg decoding buffer
 		call jpg_setup
-
-		; alloc memory for palette data
-		call pal_init
+		jc gfx_init_90
 
 		mov eax,100h
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc gfx_init_90
 		mov [infobox_buffer],eax
 
 		mov eax,200h
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc gfx_init_90
-		push eax
-		call lin2so
-		pop dword [vbe_buffer]
+		mov [vbe_mode_list],eax
 
-		mov eax,100h
-		call calloc
-		cmp eax,byte 1
-		jc gfx_init_90
-		push eax
-		call lin2so
-		pop dword [vbe_info_buffer]
-
-		mov eax,200h
-		call calloc
-		cmp eax,byte 1
-		jc gfx_init_90
-		push eax
-		call lin2so
-		pop dword [vbe_mode_list]
 		; fill list
 		call get_vbe_modes
 
@@ -913,29 +909,35 @@ gfx_init_40:
 
 		; ok, we've done it, now continue the setup
 
-%if 0
+		mov eax,[boot.sysconfig]
+		mov al,[es:eax+sc.failsafe]
+		test al,1
+		jz gfx_init_59
+
 		call dump_malloc
+		mov esi,dmsg_01
+		call printf
 		call get_key
-%endif
+
+gfx_init_59:
 
 		; run global code
 		xor eax,eax
-		mov [pstack_ptr],ax
-		mov [rstack_ptr],ax
-		call use_local_stack
+		mov [pstack.ptr],eax
+		mov [rstack.ptr],eax
 		call run_pscode
-		call use_old_stack
 		jc gfx_init_60
 
 		; check for true/false on stack
 		; (empty stack == true)
 
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
-		jc gfx_init_80
+		cmc
+		jnc gfx_init_90
 		cmp dl,t_bool
 		jnz gfx_init_70
-		cmp eax,byte 1
+		cmp eax,1
 		jz gfx_init_90
 		jmp gfx_init_70
 
@@ -943,76 +945,64 @@ gfx_init_60:
 		call ps_status_info
 		call get_key
 gfx_init_70:
-		push cs
-		call gfx_done
+		call gfx_done_pm
 		stc
-		jmp gfx_init_90
-gfx_init_80:
-		clc
 
 gfx_init_90:
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Finish gfx code.
 ;
-; Do something.
+
+		bits 16
+
 gfx_done:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
+		call gfx_done_pm
 
-		call use_local_stack
+		gfx_leave		; does not return
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
+
+gfx_done_pm:
 		call sound_done
 
 		cmp byte [keep_mode],0
-		jnz gfx_done_50
+		jnz gfx_done_pm_90
 		mov ax,3
 		int 10h
-gfx_done_50:
-
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+gfx_done_pm_90:
+		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Input a text line.
 ;
-; [boot_cs]:di	buffer	( 0 --> no buffer )
-; cx		buffer size
-; ax		timeout value (0 --> no timeout)
+; edi		buffer (0: no buffer)
+; ecx		buffer size
+; eax		timeout value (0: no timeout)
+;
 ; return:
 ;  eax		action (1, 2: textmode, boot)
 ;  ebx		selected menu entry (-1: none)
 ;
+
+		bits 16
+
 gfx_input:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
-
-		push di
-		push cx
+		push edi
+		push ecx
 
 		cmp byte [input_notimeout],0
 		jnz gfx_input_10
-		movzx eax,ax
 		mov [input_timeout],eax
 		mov [input_timeout_start],eax
 gfx_input_10:
@@ -1021,10 +1011,10 @@ gfx_input_10:
 
 gfx_input_20:
 		call get_key_to
-		and dword [input_timeout],byte 0	; disable timeout
+		and dword [input_timeout],0		; disable timeout
 
 		push eax
-		mov cx,cb_KeyEvent
+		mov ecx,cb_KeyEvent
 		call get_dict_entry
 		pop ecx
 		jc gfx_input_90
@@ -1034,13 +1024,13 @@ gfx_input_20:
 		jnz gfx_input_90
 
 		push eax
-		xchg eax,ecx
-		mov word [pstack_ptr],1
+		mov eax,ecx
+		mov dword [pstack.ptr],1
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1056,41 +1046,40 @@ gfx_input_20:
 		jmp gfx_input_90
 
 gfx_input_50:
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		jc gfx_input_90
 		cmp dl,t_string
 		stc
 		jnz gfx_input_90
 
-		pop cx
-		pop di
-		push di
-		push cx
+		pop ecx
+		pop edi
+		push edi
+		push ecx
 
-		or di,di
+		or edi,edi
 		jz gfx_input_70
-		or cx,cx
+		or ecx,ecx
 		jz gfx_input_70
 
-		lin2segofs eax,fs,si
-		mov es,[boot_cs]
+		mov esi,eax
 gfx_input_60:
-		fs lodsb
+		es lodsb
 		stosb
 		or al,al
 		loopnz gfx_input_60
-		mov byte [es:di-1],0
+		mov byte [es:edi-1],0
 
 gfx_input_70:
-		mov cx,1
+		mov ecx,1
 		call get_pstack_tos
 		jc gfx_input_90
 		cmp dl,t_int
 		stc
 		jnz gfx_input_90
 
-		xor cx,cx
+		xor ecx,ecx
 		push eax
 		call get_pstack_tos
 		pop ebx
@@ -1104,90 +1093,82 @@ gfx_input_70:
 
 gfx_input_90:
 
-		pop cx
-		pop di
+		pop ecx
+		pop edi
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Setup boot menu entries.
 ;
-; es:si	menu description
+; esi		menu description
 ;
+
+		bits 16
+
 gfx_menu_init:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-
-		call use_local_stack
-
-		push es
-		pop fs
-
-		cld
-
-gfx_menu_init_20:
-		push si
-		movzx eax,word [fs:si+menu_entries]
-		push ax
-		imul ax,ax,5
-		add ax,2
+		push esi
+		movzx eax,word [es:esi+menu_entries]
+		push eax
+		lea eax,[eax+4*eax+2]
 		push eax
 		call calloc
 		mov [tmp_var_2],eax
 		pop eax
 		call calloc
 		mov [tmp_var_1],eax
-		pop cx
-		pop si
-		or eax,[tmp_var_2]
+		pop ecx
+		pop esi
+		or eax,eax
+		jz gfx_menu_init_90
+		cmp dword [tmp_var_1],0
 		jz gfx_menu_init_90
 
-		push cx
+		push ecx
 
-		lin2segofs dword [tmp_var_1],es,bx
-		mov [es:bx],cx
-		add bx,2
-		push dword [fs:si+menu_ent_list]
-		call so2lin
-		pop edi
+		mov ebx,[tmp_var_1]
+		mov [es:ebx],cx
+		add ebx,2
+		movzx eax,word [es:esi+menu_ent_list]
+		movzx edi,word [es:esi+menu_ent_list+2]
+		shl edi,4
+		add edi,eax
 gfx_menu_init_40:
-		mov byte [es:bx],t_string
-		mov [es:bx+1],edi
-		add bx,5
-		movzx eax,word [fs:si+menu_ent_size]
+		mov byte [es:ebx],t_string
+		mov [es:ebx+1],edi
+		add ebx,5
+		movzx eax,word [es:esi+menu_ent_size]
 		add edi,eax
 		loop gfx_menu_init_40
 
-		pop cx
+		pop ecx
 
-		lin2segofs dword [tmp_var_2],es,bx
-		mov [es:bx],cx
-		add bx,2
-		push dword [fs:si+menu_arg_list]
-		call so2lin
-		pop edi
+		mov ebx,[tmp_var_2]
+		mov [es:ebx],cx
+		add ebx,2
+
+		movzx eax,word [es:esi+menu_arg_list]
+		movzx edi,word [es:esi+menu_arg_list+2]
+		shl edi,4
+		add edi,eax
 gfx_menu_init_50:
-		mov byte [es:bx],t_string
-		mov [es:bx+1],edi
-		add bx,5
-		movzx eax,word [fs:si+menu_arg_size]
+		mov byte [es:ebx],t_string
+		mov [es:ebx+1],edi
+		add ebx,5
+		movzx eax,word [es:esi+menu_arg_size]
 		add edi,eax
 		loop gfx_menu_init_50
 
-		push dword [fs:si+menu_default]
-		call so2lin
-		pop dword [tmp_var_3]
+		movzx eax,word [es:esi+menu_default]
+		movzx edi,word [es:esi+menu_default+2]
+		shl edi,4
+		add eax,edi
+		mov [tmp_var_3],eax
 
-		mov cx,cb_MenuInit
+		mov ecx,cb_MenuInit
 		call get_dict_entry
 		jc gfx_menu_init_90
 
@@ -1197,25 +1178,25 @@ gfx_menu_init_50:
 
 		push eax
 
-		mov word [pstack_ptr],3
+		mov dword [pstack.ptr],3
 
 		mov eax,[tmp_var_1]
 		mov dl,t_array
-		mov cx,2
+		mov ecx,2
 		call set_pstack_tos
 
 		mov eax,[tmp_var_2]
 		mov dl,t_array
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 
 		mov eax,[tmp_var_3]
 		mov dl,t_string
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1232,67 +1213,58 @@ gfx_menu_init_50:
 
 gfx_menu_init_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Show info box.
 ;
-; [boot_cs]:si	info text 1
-; [boot_cs]:di	info text 2	(may be 0 --> no text 2)
+; esi		info text 1
+; edi		info text 2	(0: no text 2)
 ; al		0/1	info/error
 ;
+
+		bits 16
+
 gfx_infobox_init:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
+		push eax
 
-		call use_local_stack
+		mov ecx,100h-1
+		mov ebx,[infobox_buffer]
 
-		push ax
-
-		mov cx,100h-1
-		mov fs,[boot_cs]
-
-		lin2segofs dword [infobox_buffer],es,bp
-		or si,si
+		or esi,esi
 		jnz gfx_infobox_init_20
-		inc bp
+		inc ebx
 		jmp gfx_infobox_init_40
 gfx_infobox_init_20:
-		fs lodsb
-		mov [es:bp],al
-		inc bp
+		es lodsb
+		mov [es:ebx],al
+		inc ebx
 		or al,al
 		loopnz gfx_infobox_init_20
-		or cx,cx
+		or ecx,ecx
 		jz gfx_infobox_init_40
-		mov si,di
-		or si,si
+
+		mov esi,edi
+		or esi,esi
 		jz gfx_infobox_init_40
-		inc cx
-		dec bp
+		inc ecx
+		dec ebx
 gfx_infobox_init_25:
-		fs lodsb
-		mov [es:bp],al
-		inc bp
+		es lodsb
+		mov [es:ebx],al
+		inc ebx
 		or al,al
 		loopnz gfx_infobox_init_25
 gfx_infobox_init_40:
-		mov byte [es:bp-1],0
+		mov byte [es:ebx-1],0
 
-		mov cx,cb_InfoBoxInit
+		mov ecx,cb_InfoBoxInit
 		call get_dict_entry
 
-		pop bx
+		pop ebx
 
 		jc gfx_infobox_init_90
 
@@ -1302,20 +1274,20 @@ gfx_infobox_init_40:
 
 		push eax
 
-		mov word [pstack_ptr],2
+		mov dword [pstack.ptr],2
 
 		movzx eax,bl
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 
 		mov eax,[infobox_buffer]
 		mov dl,t_string
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1331,28 +1303,19 @@ gfx_infobox_init_40:
 
 gfx_infobox_init_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Close info box.
 ;
+
+		bits 16
+
 gfx_infobox_done:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
-
-		mov cx,cb_InfoBoxDone
+		mov ecx,cb_InfoBoxDone
 		call get_dict_entry
 		jc gfx_infobox_done_90
 
@@ -1361,9 +1324,9 @@ gfx_infobox_done:
 		jnz gfx_infobox_done_90
 
 		push eax
-		mov word [pstack_ptr],0
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [pstack.ptr],0
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1379,37 +1342,28 @@ gfx_infobox_done:
 
 gfx_infobox_done_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Setup progress bar window.
 ;
 ; eax		max
-; [boot_cs]:si	kernel name
+; esi		kernel name
 ;
+
+		bits 16
+
 gfx_progress_init:
-		push fs
-		push es
-		push ds
-
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
+		gfx_enter
 
 		mov [progress_max],eax
-		and dword [progress_current],byte 0
+		and dword [progress_current],0
 
-		mov cx,cb_ProgressInit
-		push si
+		mov ecx,cb_ProgressInit
+		push esi
 		call get_dict_entry
-		pop si
+		pop esi
 		jc gfx_progress_init_90
 
 		cmp dl,t_code
@@ -1417,15 +1371,15 @@ gfx_progress_init:
 		jnz gfx_progress_init_90
 
 		push eax
-		mov word [pstack_ptr],1
+		mov dword [pstack.ptr],1
 
-		segofs2lin word [boot_cs],si,eax
+		mov eax,esi
 		mov dl,t_string
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1441,28 +1395,19 @@ gfx_progress_init:
 
 gfx_progress_init_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Close progress bar window.
 ;
+
+		bits 16
+
 gfx_progress_done:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
-
-		mov cx,cb_ProgressDone
+		mov ecx,cb_ProgressDone
 		call get_dict_entry
 		jc gfx_progress_done_90
 
@@ -1471,9 +1416,9 @@ gfx_progress_done:
 		jnz gfx_progress_done_90
 
 		push eax
-		mov word [pstack_ptr],0
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [pstack.ptr],0
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1489,30 +1434,21 @@ gfx_progress_done:
 
 gfx_progress_done_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Advance progress bar.
 ;
+
+		bits 16
+
 gfx_progress_update:
-		push fs
-		push es
-		push ds
-
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
+		gfx_enter
 
 		add [progress_current],eax
 
-		mov cx,cb_ProgressUpdate
+		mov ecx,cb_ProgressUpdate
 		call get_dict_entry
 		jc gfx_progress_update_90
 
@@ -1521,20 +1457,20 @@ gfx_progress_update:
 		jnz gfx_progress_update_90
 
 		push eax
-		mov word [pstack_ptr],2
+		mov dword [pstack.ptr],2
 
 		mov eax,[progress_current]
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 
 		mov eax,[progress_max]
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1550,51 +1486,42 @@ gfx_progress_update:
 
 gfx_progress_update_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set progress bar values.
 ;
-gfx_progress_limit:
-		push ds
 
-		push cs
-		pop ds
+		bits 16
+
+gfx_progress_limit:
+		gfx_enter
 
 		mov [progress_max],eax
 		mov [progress_current],edx
 
-		pop ds
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Setup password window.
 ;
-;  [boot_cs]:si	password
-;  [boot_cs]:di	image name
+; esi		password
+; edi		image name
 ;
+
+		bits 16
+
 gfx_password_init:
-		push fs
-		push es
-		push ds
+		gfx_enter
 
-		push cs
-		pop ds
-		cld
-
-		call use_local_stack
-
-		mov cx,cb_PasswordInit
-		push si
-		push di
+		mov ecx,cb_PasswordInit
+		push esi
+		push edi
 		call get_dict_entry
-		pop di
-		pop si
+		pop edi
+		pop esi
 		jc gfx_password_init_90
 
 		cmp dl,t_code
@@ -1603,22 +1530,22 @@ gfx_password_init:
 
 		push eax
 
-		mov word [pstack_ptr],2
+		mov dword [pstack.ptr],2
 
-		segofs2lin word [boot_cs],si,eax
+		mov eax,esi
 		mov dl,t_string
-		xor cx,cx
-		push di
+		xor ecx,ecx
+		push edi
 		call set_pstack_tos
-		pop di
+		pop edi
 
-		segofs2lin word [boot_cs],di,eax
+		mov eax,edi
 		mov dl,t_string
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1635,19 +1562,79 @@ gfx_password_init_80:
 
 gfx_password_init_90:
 
-		call use_old_stack
-
-		pop ds
-		pop es
-		pop fs
-		retf
+		gfx_leave		; does not return
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Close password window.
 ;
-;  [boot_cs]:si	password
+; esi		password
 ;
+
+		bits 16
+
 gfx_password_done:
+		gfx_enter
+
+		mov ecx,cb_PasswordDone
+		push esi
+		call get_dict_entry
+		pop esi
+		jc gfx_password_done_90
+
+		cmp dl,t_code
+		stc
+		jnz gfx_password_done_90
+
+		push eax
+
+		mov dword [pstack.ptr],1
+
+		mov eax,esi
+		mov dl,t_string
+		xor ecx,ecx
+		call set_pstack_tos
+
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
+		mov dl,t_code
+		stc
+		sbb eax,eax
+		call set_rstack_tos
+
+		pop eax
+		call run_pscode
+		jc gfx_password_done_80
+
+		xor ecx,ecx
+		call get_pstack_tos
+		jc gfx_password_done_90
+		cmp dl,t_bool
+		stc
+		jnz gfx_password_done_90
+
+		cmp eax,1
+		jmp gfx_password_done_90
+
+gfx_password_done_80:
+		call ps_status_info
+		call get_key
+		stc
+
+gfx_password_done_90:
+
+		gfx_leave		; does not return
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Save segment regs, use our own stack, and switch to pm.
+;
+
+		bits 16
+
+gfx_enter:
+		pop word [cs:tmp_var_0]
+
 		push fs
 		push es
 		push ds
@@ -1658,52 +1645,21 @@ gfx_password_done:
 
 		call use_local_stack
 
-		mov cx,cb_PasswordDone
-		push si
-		call get_dict_entry
-		pop si
-		jc gfx_password_done_90
+		pm_enter
 
-		cmp dl,t_code
-		stc
-		jnz gfx_password_done_90
+		jmp word [tmp_var_0]
 
-		push eax
 
-		mov word [pstack_ptr],1
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Switch to rm, switch back to boot loader stack, restore segment regs and leave.
+;
+; Note: function does not return.
+;
 
-		segofs2lin word [boot_cs],si,eax
-		mov dl,t_string
-		xor cx,cx
-		call set_pstack_tos
+		bits 32
 
-		mov word [rstack_ptr],1
-		xor cx,cx
-		mov dl,t_code
-		stc
-		sbb eax,eax
-		call set_rstack_tos
-
-		pop eax
-		call run_pscode
-		jc gfx_password_done_80
-
-		xor cx,cx
-		call get_pstack_tos
-		jc gfx_password_done_90
-		cmp dl,t_bool
-		stc
-		jnz gfx_password_done_90
-
-		cmp eax,byte 1
-		jmp gfx_password_done_90
-
-gfx_password_done_80:
-		call ps_status_info
-		call get_key
-		stc
-
-gfx_password_done_90:
+gfx_leave:
+		pm_leave
 
 		call use_old_stack
 
@@ -1713,12 +1669,25 @@ gfx_password_done_90:
 		retf
 
 
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Run boot loader function.
+;
+; al		function number
+;
+; return:
+;  al		error code (0 = ok)
+;
+
+		bits 32
+
 gfx_cb:
-		cmp dword [boot_callback],0
+		cmp dword [boot.callback],0
 		jz gfx_cb_80
+		pm_leave
 		push ds
-		call far [boot_callback]
+		call far [boot.callback]
 		pop ds
+		pm_enter
 		jmp gfx_cb_90
 gfx_cb_80:
 		mov al,0ffh
@@ -1735,8 +1704,11 @@ gfx_cb_90:
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
+
+		bits 32
+
 timeout:
-		mov cx,cb_Timeout
+		mov ecx,cb_Timeout
 		call get_dict_entry
 		jc timeout_90
 
@@ -1745,20 +1717,20 @@ timeout:
 		jnz timeout_90
 
 		push eax
-		mov word [pstack_ptr],2
+		mov dword [pstack.ptr],2
 
-		mov cx,1
+		mov ecx,1
 		mov dl,t_int
 		mov eax,[input_timeout_start]
 		call set_pstack_tos
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_int
 		mov eax,[input_timeout]
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1777,11 +1749,15 @@ timeout_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Run 'Timer' callback function.
 ;
 ; eax		time
 ;
+
+		bits 32
+
 timer:
-		mov cx,cb_Timer
+		mov ecx,cb_Timer
 		push eax
 		call get_dict_entry
 		pop ebx
@@ -1792,15 +1768,15 @@ timer:
 		jnz timer_90
 
 		push eax
-		mov word [pstack_ptr],1
+		mov dword [pstack.ptr],1
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_int
-		xchg eax,ebx
+		mov eax,ebx
 		call set_pstack_tos
 
-		mov word [rstack_ptr],1
-		xor cx,cx
+		mov dword [rstack.ptr],1
+		xor ecx,ecx
 		mov dl,t_code
 		stc
 		sbb eax,eax
@@ -1819,424 +1795,434 @@ timer_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Initialize parameter & return stack.
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 stack_init:
-		mov ax,param_stack_size
-		mov [pstack_size],ax
-		and word [pstack_ptr],byte 0
+		mov dword [pstack.size],param_stack_size
+		and dword [pstack.ptr],0
 		mov eax,param_stack_size * 5
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc stack_init_90
-		push eax
-		call lin2so
-		pop dword [pstack]
+		mov [pstack],eax
 
-		mov ax,ret_stack_size
-		mov [rstack_size],ax
-		and word [rstack_ptr],byte 0
+		mov dword [rstack.size],ret_stack_size
+		and dword [rstack.ptr],0
 		mov eax,ret_stack_size * 5
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc stack_init_90
-		push eax
-		call lin2so
-		pop dword [rstack]
+		mov [rstack],eax
+
 stack_init_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Rotate pstack up (ecx-1'th element becomes tos).
 ;
-; Read a pstack entry.
-;
-;  cx		index
-;
-; return:
-;  eax		value
-;  dl		type
-;  cx		index
-;  CF		error
-;
-get_pstack_entry:
-		les bx,[pstack]
-		xor eax,eax
-		mov dl,al
-		cmp [pstack_size],cx
-		jb get_pstack_entry_90
-		mov ax,5
-		mul cx
-		add bx,ax
-		mov dl,[es:bx]
-		mov eax,[es:bx+1]
-get_pstack_entry_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Write a pstack entry.
-;
-;  cx		index
-;  eax		value
-;  dl		type
-;
-; return:
-;  cx		index
-;  CF		error
-;
-set_pstack_entry:
-		les bx,[pstack]
-		cmp [pstack_size],cx
-		jb set_pstack_entry_90
-		push eax
-		push dx
-		mov ax,5
-		mul cx
-		add bx,ax
-		pop dx
-		mov [es:bx],dl
-		pop dword [es:bx+1]
-set_pstack_entry_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Read pstack tos (no pop).
-;
-;  cx           index (rel. to tos, 0 = tos)
-;
-; return:
-;  eax		value
-;  dl		type
-;  cx		index (absolute)
-;  CF		error
-;
-get_pstack_tos:
-		mov ax,[pstack_ptr]
-		sub ax,1
-		jc get_pstack_tos_90
-		sub ax,cx
-		jc get_pstack_tos_90
-		xchg ax,cx
-		call get_pstack_entry
-get_pstack_tos_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Write pstack tos (no push).
-;
-;  cx           index (rel. to tos, 0 = tos)
-;  eax		value
-;  dl		type
-;
-; return:
-;  cx		index (absolute)
-;  CF		error
-;
-set_pstack_tos:
-		mov bx,[pstack_ptr]
-		sub bx,1
-		jc set_pstack_tos_90
-		sub bx,cx
-		jc set_pstack_tos_90
-		xchg bx,cx
-		call set_pstack_entry
-set_pstack_tos_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Rotate pstack up (cx-1'th element becomes tos).
-;
-;  cx		values to rotate (counted from tos)
+;  ecx		values to rotate (counted from tos)
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 rot_pstack_up:
-		or cx,cx
+		or ecx,ecx
 		jz rot_pstack_up_90
-		les di,[pstack]
-		mov ax,[pstack_ptr]
-		sub ax,cx
+		mov edi,[pstack]
+		mov eax,[pstack.ptr]
+		sub eax,ecx
 		jb rot_pstack_up_90
-		cmp cx,byte 1
+		cmp ecx,1
 		jz rot_pstack_up_90
-		add di,ax
-		shl ax,2
-		add di,ax
-		dec cx
-		mov ax,cx
-		shl ax,2
-		add cx,ax
-		mov ebx,[es:di]
-		mov dl,[es:di+4]
-		lea si,[di+5]
+		add edi,eax
+		shl eax,2
+		add edi,eax
+		dec ecx
+		mov eax,ecx
+		shl eax,2
+		add ecx,eax
+		mov ebx,[es:edi]
+		mov dl,[es:edi+4]
+		lea esi,[edi+5]
 		es rep movsb
-		mov [es:di],ebx
-		mov [es:di+4],dl
+		mov [es:edi],ebx
+		mov [es:edi+4],dl
 		clc
 rot_pstack_up_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Rotate pstack down (1st element becomes tos).
 ;
-;  cx		values to rotate (counted from tos)
+;  ecx		values to rotate (counted from tos)
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 rot_pstack_down:
-		or cx,cx
+		or ecx,ecx
 		jz rot_pstack_down_90
-		les di,[pstack]
-		mov ax,[pstack_ptr]
-		cmp ax,cx
+		mov edi,[pstack]
+		mov eax,[pstack.ptr]
+		cmp eax,ecx
 		jb rot_pstack_down_90
-		cmp cx,byte 1
+		cmp ecx,1
 		jz rot_pstack_down_90
-		add di,ax
-		shl ax,2
-		add di,ax
-		dec di
-		lea si,[di-5]
-		dec cx
-		mov ax,cx
-		shl ax,2
-		add cx,ax
-		mov ebx,[es:si+1]
-		mov dl,[es:si+5]
+		add edi,eax
+		shl eax,2
+		add edi,eax
+		dec edi
+		lea esi,[edi-5]
+		dec ecx
+		mov eax,ecx
+		shl eax,2
+		add ecx,eax
+		mov ebx,[es:esi+1]
+		mov dl,[es:esi+5]
 		std
 		es rep movsb
 		cld
-		mov [es:si+1],ebx
-		mov [es:si+5],dl
+		mov [es:esi+1],ebx
+		mov [es:esi+5],dl
 		clc
 rot_pstack_down_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read pstack entry.
 ;
-; Read a rstack entry.
-;
-;  cx		index
+;  ecx		index
 ;
 ; return:
 ;  eax		value
 ;  dl		type
-;  cx		index
+;  ecx		index
 ;  CF		error
 ;
-get_rstack_entry:
-		les bx,[rstack]
+
+		bits 32
+
+get_pstack_entry:
 		xor eax,eax
 		mov dl,al
-		cmp [rstack_size],cx
+		cmp [pstack.size],ecx
+		jb get_pstack_entry_90
+		lea ebx,[ecx+ecx*4]
+		add ebx,[pstack]
+		mov dl,[es:ebx]
+		mov eax,[es:ebx+1]
+		clc
+get_pstack_entry_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write pstack entry.
+;
+;  ecx		index
+;  eax		value
+;  dl		type
+;
+; return:
+;  ecx		index
+;  CF		error
+;
+
+		bits 32
+
+set_pstack_entry:
+		cmp [pstack.size],ecx
+		jb set_pstack_entry_90
+		lea ebx,[ecx+ecx*4]
+		add ebx,[pstack]
+		mov [es:ebx],dl
+		mov [es:ebx+1],eax
+		clc
+set_pstack_entry_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read pstack tos (no pop).
+;
+;  ecx		index (rel. to tos, 0 = tos)
+;
+; return:
+;  eax		value
+;  dl		type
+;  ecx		index (absolute)
+;  CF		error
+;
+
+		bits 32
+
+get_pstack_tos:
+		mov eax,[pstack.ptr]
+		sub eax,1
+		jc get_pstack_tos_90
+		sub eax,ecx
+		jc get_pstack_tos_90
+		xchg eax,ecx
+		call get_pstack_entry
+get_pstack_tos_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write pstack tos (no push).
+;
+;  ecx		index (rel. to tos, 0 = tos)
+;  eax		value
+;  dl		type
+;
+; return:
+;  ecx		index (absolute)
+;  CF		error
+;
+
+		bits 32
+
+set_pstack_tos:
+		mov ebx,[pstack.ptr]
+		sub ebx,1
+		jc set_pstack_tos_90
+		sub ebx,ecx
+		jc set_pstack_tos_90
+		xchg ebx,ecx
+		call set_pstack_entry
+set_pstack_tos_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read rstack entry.
+;
+;  ecx		index
+;
+; return:
+;  eax		value
+;  dl		type
+;  ecx		index
+;  CF		error
+;
+
+		bits 32
+
+get_rstack_entry:
+		xor eax,eax
+		mov dl,al
+		cmp [rstack.size],ecx
 		jb get_rstack_entry_90
-		mov ax,5
-		mul cx
-		add bx,ax
-		mov dl,[es:bx]
-		mov eax,[es:bx+1]
+		lea ebx,[ecx+ecx*4]
+		add ebx,[rstack]
+		mov dl,[es:ebx]
+		mov eax,[es:ebx+1]
+		clc
 get_rstack_entry_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write rstack entry.
 ;
-; Write a rstack entry.
-;
-;  cx		index
+;  ecx		index
 ;  eax		value
 ;  dl		type
 ;
 ; return:
-;  cx		index
+;  ecx		index
 ;  CF		error
 ;
+
+		bits 32
+
 set_rstack_entry:
-		les bx,[rstack]
-		cmp [rstack_size],cx
+		cmp [rstack.size],ecx
 		jb set_rstack_entry_90
-		push eax
-		push dx
-		mov ax,5
-		mul cx
-		add bx,ax
-		pop dx
-		mov [es:bx],dl
-		pop dword [es:bx+1]
+		lea ebx,[ecx+ecx*4]
+		add ebx,[rstack]
+		mov [es:ebx],dl
+		mov [es:ebx+1],eax
+		clc
 set_rstack_entry_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read rstack tos (no pop).
 ;
-;  cx           index (rel. to tos, 0 = tos)
+;  ecx		index (rel. to tos, 0 = tos)
 ;
 ; return:
 ;  eax		value
 ;  dl		type
-;  cx		index (absolute)
+;  ecx		index (absolute)
 ;  CF		error
 ;
+
+		bits 32
+
 get_rstack_tos:
-		mov ax,[rstack_ptr]
-		sub ax,1
+		mov eax,[rstack.ptr]
+		sub eax,1
 		jc get_rstack_tos_90
-		sub ax,cx
+		sub eax,ecx
 		jc get_rstack_tos_90
-		xchg ax,cx
+		xchg eax,ecx
 		call get_rstack_entry
 get_rstack_tos_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write rstack tos (no push).
 ;
-;  cx           index (rel. to tos, 0 = tos)
+;  ecx		index (rel. to tos, 0 = tos)
 ;  eax		value
 ;  dl		type
 ;
 ; return:
-;  cx		index (absolute)
+;  ecx		index (absolute)
 ;  CF		error
 ;
+
+		bits 32
+
 set_rstack_tos:
-		mov bx,[rstack_ptr]
-		sub bx,1
+		mov ebx,[rstack.ptr]
+		sub ebx,1
 		jc set_rstack_tos_90
-		sub bx,cx
+		sub ebx,ecx
 		jc set_rstack_tos_90
-		xchg bx,cx
+		xchg ebx,ecx
 		call set_rstack_entry
 set_rstack_tos_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Setup initial dictionary.
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 dict_init:
-		push fs
-		mov eax,[mem]
-		lin2segofs eax,es,si
-		mov ecx,[es:si+fh_dict]
-		cmp ecx,byte 1
+		mov eax,[file.start]
+
+		mov ecx,[es:eax+fh_dict]
+		cmp ecx,1
 		jc dict_init_90
 		add eax,ecx
-		lin2segofs eax,es,si
+
+		mov esi,eax
+
 		xor eax,eax
 		es lodsw
-		mov [dict_size],ax
-		; the dictionary should fit in 64k
-		cmp ax,0fff0h/5
-		cmc
-		jc dict_init_90
+		mov [dict.size],ax
 
 		; p_none is not part of the default dict
 		cmp ax,cb_functions + prim_functions - 1
 		jb dict_init_90
 
-		imul eax,eax,5
-		push es
-		push si
-		call calloc
-		pop si
-		pop es
-		cmp eax,byte 1
-		jc dict_init_90
+		lea eax,[eax+eax*4]
 
-		push eax
-		call lin2so
-		pop dword [dict]
+		push esi
+		call calloc
+		pop esi
+		cmp eax,1
+		jc dict_init_90
+		mov [dict],eax
 
 		; add default functions
 
-		lfs bx,[dict]
-		add bx,cb_functions * 5
-		xor cx,cx
-		inc cx
+		add eax,cb_functions * 5
+		xor ecx,ecx
+		inc ecx
 dict_init_20:
-		mov byte [fs:bx],t_prim
-		mov [fs:bx+1],cx
-		add bx,5
-		inc cx
-		cmp cx,prim_functions
+		mov byte [es:eax],t_prim
+		mov [es:eax+1],ecx
+		add eax,5
+		inc ecx
+		cmp ecx,prim_functions
 		jb dict_init_20
 
 		; add user defined things
 
+		xor eax,eax
 		es lodsw
-		or ax,ax
+		or eax,eax
 		jz dict_init_80
-		cmp [dict_size],ax
+		cmp [dict.size],eax
 		jb dict_init_90
-		lfs bx,[dict]
-		xchg ax,cx
+
+		mov ebx,[dict]
+
+		xchg eax,ecx
 dict_init_50:
+		xor eax,eax
 		es lodsw
-		cmp ax,[dict_size]
+		cmp eax,[dict.size]
 		cmc
 		jc dict_init_90
-		mov di,5
-		mul di
-		xchg ax,di
+		lea edi,[eax+eax*4]
 		es lodsb
-		mov [fs:bx+di],al
+		mov [fs:ebx+edi],al
 		es lodsd
-		mov [fs:bx+di+1],eax
-		dec cx
+		mov [fs:ebx+edi+1],eax
+		dec ecx
 		jnz dict_init_50
 
 dict_init_80:
 		clc
 dict_init_90:
-		pop fs
 		ret
 
-%if debug
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Dump dictionary to console.
+;
+; Currently unused.
+;
+%if 0
+
+		bits 32
 
 dump_dict:
-		mov si,dmsg_09
+		mov esi,dmsg_09
 		call printf
 
-		xor cx,cx
+		xor ecx,ecx
 dump_dict_20:
 		call get_dict_entry
 		jc dump_dict_90
-		pf_arg_ushort 0,cx
+		pf_arg_uint 0,ecx
 		pf_arg_uchar 1,dl
 		pf_arg_uint 2,eax
-		mov si,dmsg_10
+		mov esi,dmsg_10
 		pusha
 		call printf
 		popa
 
-		inc cx
-		cmp cx,[dict_size]
+		inc ecx
+		cmp ecx,[dict.size]
 		jb dump_dict_20
 dump_dict_90:
 		ret
@@ -2245,72 +2231,66 @@ dump_dict_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read a dictionary entry.
 ;
-;  cx		index
+;  ecx		index
 ;
 ; return:
 ;  eax		value
 ;  dl		type
-;  cx		index
+;  ecx		index
 ;  CF		error
 ;
+
+		bits 32
+
 get_dict_entry:
-		les bx,[dict]
 		xor eax,eax
 		mov dl,al
-		cmp [dict_size],cx
+		cmp [dict.size],ecx
 		jb get_dict_entry_90
-		mov ax,5
-		mul cx
-		add bx,ax
-		mov dl,[es:bx]
-		mov eax,[es:bx+1]
+		lea eax,[ecx+4*ecx]		; dict entry size = 5
+		add eax,[dict]
+		mov dl,[es:eax]
+		mov eax,[es:eax+1]
 get_dict_entry_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write a dictionary entry.
 ;
-;  cx		index
+;  ecx		index
 ;  eax		value
 ;  dl		type
 ;
 ; return:
-;  cx		index
+;  ecx		index
 ;  CF		error
 ;
+
+		bits 32
+
 set_dict_entry:
-		les bx,[dict]
-		cmp [dict_size],cx
+		cmp [dict.size],ecx
 		jb set_dict_entry_90
-		push eax
-		push dx
-		mov ax,5
-		mul cx
-		add bx,ax
-		pop dx
-		mov [es:bx],dl
-		pop dword [es:bx+1]
+		lea ebx,[ecx+4*ecx]
+		add ebx,[dict]
+		mov [es:ebx],dl
+		mov [es:ebx+1],eax
 set_dict_entry_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Init malloc areas.
 ;
 ; idt is not ready yet - hence the cli.
 ;
+
+		bits 32
+
 malloc_init:
-		pushf
-		cli
-
-		pm_enter 32
-
 		xor ebx,ebx
 malloc_init_10:
 		mov eax,[malloc.area + bx]
@@ -2344,16 +2324,10 @@ malloc_init_70:
 		add bx,8
 		cmp bx,malloc.areas * 8
 		jb malloc_init_10
-
-		pm_leave 32
-
-		popf
-
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get some memory.
 ;
 ;  eax          memory size
@@ -2362,16 +2336,18 @@ malloc_init_70:
 ;  eax          linear address  (0 if the request failed)
 ;  memory is initialized with 0
 ;
+
+		bits 32
+
 calloc:
 		push eax
-		pm_enter 32
 		call malloc
-		pm_leave 32
 		pop ecx
+calloc_10:
 		or eax,eax
 		jz calloc_90
 		push eax
-		lin2segofs eax,es,di
+		mov edi,eax
 		xor al,al
 		rep stosb
 		pop eax
@@ -2380,35 +2356,32 @@ calloc_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get some memory (taken from extended memory, if possible).
 ;
 ;  eax          memory size
 ;
 ; return:
 ;  eax          linear address  (0 if the request failed)
+;  memory is initialized with 0
 ;
 
 		bits 32
 
-xmalloc:
+xcalloc:
 		mov bx,8		; start with mem area 1
 
 		push eax
 		call malloc_10
-		pop edx
+		pop ecx
 
 		or eax,eax
-		jnz xmalloc_90
+		jnz calloc_10
 
-		mov eax,edx
-		jmp malloc
-xmalloc_90:
-		ret
+		mov eax,ecx
+		jmp calloc
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get some memory.
 ;
 ;  eax          memory size
@@ -2501,7 +2474,6 @@ _malloc_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Free memory.
 ;
 ;  eax          linear address
@@ -2592,18 +2564,16 @@ _free_90:
 ; Dump memory chain.
 ;
 
-		bits 16
+		bits 32
 
-%if debug
-; dump memory chain
 dump_malloc:
 		pushad
 
-		xor dx,dx
+		xor edx,edx
 		call con_xy
 
-		xor bx,bx
-		xor bp,bp
+		xor ebx,ebx
+		xor ebp,ebp
 
 dump_malloc_10:
 		mov ecx,[malloc.area + bx]
@@ -2615,17 +2585,15 @@ dump_malloc_10:
 		cmp ecx,edx
 		jz dump_malloc_70
 
-		push bx
+		push ebx
 		call _dump_malloc
-		pop bx
+		pop ebx
 
 dump_malloc_70:
-		add bx,8
-		cmp bx,malloc.areas * 8
+		add ebx,8
+		cmp ebx,malloc.areas * 8
 		jb dump_malloc_10
 dump_malloc_90:
-
-		call lin_seg_off
 
 		popad
 		ret
@@ -2634,7 +2602,7 @@ _dump_malloc:
 		mov ebx,[malloc.start]
 
 _dump_malloc_30:
-		lin2seg ebx,es,esi
+		mov esi,ebx
 		mov ecx,[es:esi + mhead.memsize]
 
 		pushad
@@ -2654,24 +2622,22 @@ _dump_malloc_40:
 		pf_arg_uchar 3,al
 		mov eax,[es:esi + mhead.ip]
 		pf_arg_uint 4,eax
-		mov si,dmsg_03
-
-		call lin_seg_off
+		mov esi,dmsg_03
 
 		call printf
 		popad
 
-		inc bp
-		test bp,01fh
+		inc ebp
+		test ebp,01fh
 		jnz _dump_malloc_60
 		pushad
 		call get_key
-		xor dx,dx
+		xor edx,edx
 		call con_xy
 		popad
 _dump_malloc_60:		
 
-		mov si,dmsg_04
+		mov esi,dmsg_04
 		cmp ecx,mhead.size
 		jbe _dump_malloc_70
 
@@ -2681,25 +2647,21 @@ _dump_malloc_60:
 		jb _dump_malloc_30
 
 		mov ecx,[malloc.end]
-		mov si,dmsg_04a
+		mov esi,dmsg_04a
 
 _dump_malloc_70:
 		pf_arg_uint 0,ebx
 		pf_arg_uint 1,ecx
 _dump_malloc_80:
 
-		call lin_seg_off
-
-		push bp
+		push ebp
 		call printf
-		pop bp
+		pop ebp
 _dump_malloc_90:
 		ret
-%endif
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get memory size.
 ;
 ;  eax		memory area (0 ... malloc.areas - 1)
@@ -2758,17 +2720,18 @@ _memsize_50:
 _memsize_90:
 		ret
 
-		bits 16
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Calculate size of memory block.
 ;
-;  eax		lin. address
+; eax		address
 ;
 ; return:
 ;  eax		size
 ;
+
+		bits 32
+
 find_mem_size:
 		call fms_code
 		jnc find_mem_size_90
@@ -2784,9 +2747,6 @@ find_mem_size:
 		xor eax,eax
 
 find_mem_size_90:
-
-		call lin_seg_off
-
 		ret
 
 
@@ -2800,14 +2760,15 @@ fms_code:
 		cmc
 		jc fms_code_90
 
-		lin2segofs eax,es,di
-		mov cx,0ffffh
-		sub cx,di
-		movzx edx,cx
+		mov edi,eax
+		xor ecx,ecx
+		dec ecx
+		sub ecx,edi
+		mov edx,ecx
 		xor eax,eax
 		repnz scasb
 		jnz fms_code_80
-		sub dx,cx
+		sub edx,ecx
 		mov eax,edx
 fms_code_80:
 		clc
@@ -2817,7 +2778,7 @@ fms_code_90:
 
 ; check malloc areas
 fms_malloc:
-		xor bx,bx
+		xor ebx,ebx
 fms_malloc_10:
 		mov ecx,[malloc.area + bx]
 		mov edx,[malloc.area + 4 + bx]
@@ -2832,8 +2793,8 @@ fms_malloc_10:
 
 		jmp fms_malloc_30
 fms_malloc_20:
-		add bx,8
-		cmp bx,malloc.areas * 8
+		add ebx,8
+		cmp ebx,malloc.areas * 8
 		jb fms_malloc_10
 
 		stc
@@ -2851,21 +2812,20 @@ fms_malloc_30:
 		mov ebx,[malloc.start]
 
 fms_malloc_40:
-		lin2seg ebx,es,esi
-		mov ecx,[es:esi + mhead.memsize]
+		mov ecx,[es:ebx + mhead.memsize]
 		lea edx,[ebx+ecx]
 
 		cmp eax,edx
 		jae fms_malloc_50
 
-		test byte [es:esi + mhead.used],80h
+		test byte [es:ebx + mhead.used],80h
 		jz fms_malloc_70		; free
 
 		sub eax,ebx
 		cmp eax,mhead.size
 		jb fms_malloc_70		; within header
 
-		mov dl,[es:esi + mhead.rem]
+		mov dl,[es:ebx + mhead.rem]
 		and edx,7fh
 
 		add eax,edx
@@ -2887,60 +2847,59 @@ fms_malloc_90:
 
 ; some file in cpio archive
 fms_file:
-		mov ebp,[mem_archive]
-		or ebp,ebp
+		mov ebx,[archive.start]
+		or ebx,ebx
 		stc
 		jz fms_file_90
-		cmp eax,ebp
+		cmp eax,ebx
 		jc fms_file_90
-		cmp eax,[mem_free]
+		cmp eax,[archive.end]
 		cmc
 		jc fms_file_90
 
 fms_file_10:
-		mov ecx,[mem_free]
+		mov ecx,[archive.end]
 		sub ecx,26
-		cmp ebp,ecx
+		cmp ebx,ecx
 		jae fms_file_80
 
-		lin2segofs ebp,es,bx
 		mov byte [fms_cpio_swab],0
-		cmp word [es:bx],71c7h
+		cmp word [es:ebx],71c7h
 		jz fms_file_20			; normal cpio record
-		cmp word [es:bx],0c771h		; maybe byte-swapped?
+		cmp word [es:ebx],0c771h	; maybe byte-swapped?
 		jnz fms_file_80			; no cpio record
 		mov byte [fms_cpio_swab],1
 
 fms_file_20:
-		push ax
-		mov ax,[es:bx+20]		; file name size
+		push eax
+		mov ax,[es:ebx+20]		; file name size
 		call cpio_swab
 		movzx ecx,ax
-		pop ax
-		inc cx
-		and cx,~1			; align
+		pop eax
+		inc ecx
+		and ecx,~1			; align
 
-		lea ecx,[ecx+ebp+26]		; data start
+		lea ecx,[ecx+ebx+26]		; data start
 
 		cmp eax,ecx
 		jb fms_file_80			; within header area
 
 		push eax
-		mov eax,[es:bx+22]		; data size
+		mov eax,[es:ebx+22]		; data size
 		call cpio_swab
 		rol eax,16			; strange word order
 		call cpio_swab
 		mov edx,eax
 		pop eax
 
-		mov ebp,edx
-		inc ebp
-		and ebp,byte ~1			; align
-		add ebp,ecx			; next record
+		mov ebx,edx
+		inc ebx
+		and ebx,~1			; align
+		add ebx,ecx			; next record
 
 		add ecx,edx
 
-		cmp eax,ebp
+		cmp eax,ebx
 		jae fms_file_10
 
 		sub ecx,eax
@@ -2948,147 +2907,86 @@ fms_file_20:
 
 		jnc fms_file_90			; not within alignment area
 fms_file_80:
-		xor  eax,eax
+		xor eax,eax
 fms_file_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; byte-swap cpio data if appropriate
+; Byte-swap cpio data if appropriate.
 ;
 ;  ax:		word to swap
 ;
 ; return:
 ;  ax:		swapped if [fms_cpio_swab], otherwise same as input
 ;
+
+		bits 32
+
 cpio_swab:
 		cmp byte [fms_cpio_swab],0
 		jz cpio_swab_90
 		xchg ah,al
-
 cpio_swab_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Find (and load) file.
 ;
-; Load segment with 4GB selector.
-;
-;  byte [pm_seg_mask]	segment bit mask (bit 1-3: es, fs, gs)
-;
-; return:
-;  seg			4GB segment selector
-;  IF			0 (interrupts off)
-;
-; Note: MUST NOT be run in protected mode!!!
-;
-lin_seg:
-		cli
-
-		push eax
-
-		mov al,[pm_seg_mask]
-		test [pm_large_seg],al
-		jnz lin_seg_80
-
-		mov eax,cr0
-		or al,1
-		o32 lgdt [pm_gdt]
-		mov cr0,eax
-
-		test byte [pm_seg_mask],(1 << 1)
-		jz lin_seg_30
-		push word pm_seg
-		pop es
-		jmp lin_seg_50
-lin_seg_30:
-		test byte [pm_seg_mask],(1 << 2)
-		jz lin_seg_40
-		push word pm_seg
-		pop fs
-		jmp lin_seg_50
-lin_seg_40:
-		test byte [pm_seg_mask],(1 << 3)
-		jz lin_seg_50
-		push word pm_seg
-		pop gs
-lin_seg_50:
-
-		and al,~1
-		mov cr0,eax
-
-		mov al,[pm_seg_mask]
-		or byte [pm_large_seg],al
-
-lin_seg_80:
-		pop eax
-
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-;
-lin_seg_off:
-		mov byte [pm_large_seg],0
-		sti
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Find file.
-;
-;  eax		file name (lin)
+;  eax		file name
 ;
 ; return:
-;  eax		file start (lin)
+;  eax		file start
 ;   bl		0/1: file/symlink 
 ;
-; Note: use find_mem_size to find out the file size
+; Note: use find_mem_size to find out file size.
 ;
+
+		bits 32
+
 find_file:
-		lin2segofs eax,fs,si
+		mov esi,eax
 		mov al,0
-		mov ebp,[mem_archive]
+		mov ebp,[archive.start]
 		or ebp,ebp
 		jz find_file_80
 find_file_20:
-		lin2segofs ebp,es,bx
+		mov ebx,ebp
+
 		mov byte [fms_cpio_swab],0
-		cmp word [es:bx],71c7h		; little-endian archive
+		cmp word [es:ebx],71c7h		; little-endian archive
 		jz find_file_30
-		cmp word [es:bx],0c771h		; big-endian
+		cmp word [es:ebx],0c771h	; big-endian
 		jnz find_file_80
 		mov byte [fms_cpio_swab],1
 find_file_30:
-		mov al,[es:bx+7]
+		mov al,[es:ebx+7]
 		and al,0f0h
 		cmp al,0a0h
 		setz al
-		push ax
-		mov ax,[es:bx+20]	; file name size (incl. final 0)
+		push eax
+		mov ax,[es:ebx+20]	; file name size (incl. final 0)
 		call cpio_swab
-		mov cx,ax
-		pop ax
-		movzx edx,cx
-		inc dx
-		and dx,~1		; align
-		lea ebp,[ebp+edx+26]	; points to data start
-		lea di,[bx+26]
-		or cx,cx
+		movzx ecx,ax
+		pop eax
+		mov edx,ecx
+		inc edx
+		and edx,~1		; align
+		lea edi,[ebx+26]
+		lea ebp,[ebx+edx+26]	; points to data start
+		or ecx,ecx
 		jz find_file_50
-		push si
-		fs rep cmpsb
-		pop si
+		push esi
+		es rep cmpsb
+		pop esi
 		jnz find_file_50
 		mov bl,al
 		mov eax,ebp
 		jmp find_file_90
 find_file_50:
 		push eax
-		mov eax,[es:bx+22]	; data size
+		mov eax,[es:ebx+22]	; data size
 		call cpio_swab
 		rol eax,16		; strange word order
 		call cpio_swab
@@ -3096,11 +2994,11 @@ find_file_50:
 		pop eax
 
 		inc ecx
-		and ecx,byte ~1		; align
+		and ecx,~1		; align
 		add ebp,ecx
 		mov ecx,ebp
 		add ecx,26
-		cmp ecx,[mem_free]
+		cmp ecx,[archive.end]
 		jb find_file_20
 find_file_80:
 		xor eax,eax
@@ -3110,7 +3008,6 @@ find_file_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Set graphics mode.
 ;
 ;  [gfx_mode]	graphics mode (either vbe or normal mode number)
@@ -3119,73 +3016,82 @@ find_file_90:
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 set_mode:
-		push es
 		mov ax,[gfx_mode]
 		test ah,ah
 		jnz set_mode_20
 		int 10h
 		mov word [window_seg_w],0a000h
-		and word [window_seg_r],byte 0
+		and word [window_seg_r],0
 		mov byte [mapped_window],0
 
 		mov al,[gfx_mode]
 		cmp al,13h
-		jnz set_mode_102
+		jnz set_mode_10
 		; 320x200, 8 bit
 		mov word [screen_width],320
 		mov word [screen_height],200
 		mov word [screen_vheight],200
-		mov word [screen_line_len],320
+		mov dword [screen_line_len],320
 		mov byte [pixel_bits],8
 		mov byte [pixel_bytes],1
 		call mode_init
-set_mode_102:
+set_mode_10:
 		clc
 		jmp set_mode_90
 set_mode_20:
-		les di,[vbe_buffer]
+		mov ebx,[vbe_buffer]
+		and dword [es:ebx],0
+
+		mov eax,ebx
+		shr eax,4
+		mov [rm_seg.es],ax
+		mov edi,ebx
+		and edi,0fh
+
 		mov ax,4f00h
-		and dword [es:di],byte 0
-		push di			; you never know...
+		push ebx
 		int 10h
-		pop di
+		pop ebx
 		cmp ax,4fh
 		jnz set_mode_80
 		mov ax,4f01h
 		mov cx,[gfx_mode]
-		push di
+		push ebx
 		int 10h
-		pop di
+		pop edi
 		cmp ax,4fh
 		jnz set_mode_80
 
-		push word [es:di+10h]
-		pop word [screen_line_len]
+		movzx eax,word [es:edi+10h]
+		mov [screen_line_len],eax
 
-		push word [es:di+12h]
+		push word [es:edi+12h]
 		pop word [screen_width]
-		push word [es:di+14h]
+		push word [es:edi+14h]
 		pop word [screen_height]
 
-		movzx eax,byte [es:di+1dh]
-		inc ax
+		movzx eax,byte [es:edi+1dh]
+		inc eax
 		movzx ecx,word [screen_height]
 		mul ecx
 		cmp eax,7fffh
 		jbe set_mode_25
-		mov ax,7fffh
+		mov eax,7fffh
 set_mode_25:
 		mov [screen_vheight],ax
 
-		mov al,[es:di+1bh]		; color mode (aka memory model)
-		mov ah,[es:di+19h]		; color depth
+		mov al,[es:edi+1bh]		; color mode (aka memory model)
+		mov ah,[es:edi+19h]		; color depth
 		mov dh,ah
 		cmp al,6			; direct color
 		jnz set_mode_30
-		mov dh,[es:di+1fh]		; red
-		add dh,[es:di+21h]		; green
-		add dh,[es:di+23h]		; blue
+		mov dh,[es:edi+1fh]		; red
+		add dh,[es:edi+21h]		; green
+		add dh,[es:edi+23h]		; blue
 		jmp set_mode_40
 set_mode_30:
 		cmp al,4			; PL 8
@@ -3207,20 +3113,18 @@ set_mode_45:
 		mov [pixel_bytes],ah
 		mov [color_bits],dh
 
-		call mode_init
-
 		; we check if win A is readable _and_ writable; if not, we want
 		; at least a writable win A and a readable win B
 		; other, even more silly variations are not supported
 
-		mov ax,[es:di+8]		; win seg A
-		mov bx,[es:di+10]		; win seg B
+		mov ax,[es:edi+8]		; win seg A
+		mov bx,[es:edi+10]		; win seg B
 
 		or ax,ax
 		jz set_mode_80
 		mov [window_seg_w],ax
 		and word [window_seg_r],byte 0
-		mov dx,[es:di+2]		; win A/B attributes
+		mov dx,[es:edi+2]		; win A/B attributes
 		and dx,707h
 		cmp dl,7
 		jz set_mode_50		; win A is rw
@@ -3240,11 +3144,11 @@ set_mode_45:
 		mov [window_seg_r],ax
 		mov [window_seg_w],bx
 set_mode_50:
-		mov ax,[es:di+6]	; win size (in kb)
+		mov ax,[es:edi+6]	; win size (in kb)
 		cmp ax,64
 		jb set_mode_80		; at least 64k
-		xor dx,dx
-		mov bx,[es:di+4]	; granularity (in kb)
+		xor edx,edx
+		mov bx,[es:edi+4]	; granularity (in kb)
 		or bx,bx
 		jz set_mode_80
 		div bx
@@ -3261,45 +3165,64 @@ set_mode_50:
 		jnz set_mode_80
 		mov al,0
 		call set_win
+
+		call mode_init
+
+		clc
+
 		jmp set_mode_90
 set_mode_80:
-		and word [gfx_mode],byte 0
+		and word [gfx_mode],0
 		stc
 set_mode_90
-		pop es
 		ret
 
-
 mode_init:
-		mov word [setpixel],setpixel_8
-		mov word [setpixel_a],setpixel_a_8
-		mov word [setpixel_t],setpixel_8
-		mov word [setpixel_ta],setpixel_a_8
-		mov word [getpixel],getpixel_8
+		; graphics window selectors
+
+		movzx eax,word [window_seg_w]
+		shl eax,4
+		mov si,pm_seg.screen_w16
+		call set_gdt_base_pm
+
+		movzx ecx,word [window_seg_r]
+		shl ecx,4
+		jz mode_init_05
+		mov eax,ecx
+mode_init_05:
+		mov si,pm_seg.screen_r16
+		call set_gdt_base_pm
+
+		; pixel get/set functions
+
+		mov dword [setpixel],setpixel_8
+		mov dword [setpixel_a],setpixel_a_8
+		mov dword [setpixel_t],setpixel_8
+		mov dword [setpixel_ta],setpixel_a_8
+		mov dword [getpixel],getpixel_8
 		cmp byte [pixel_bits],8
 		jz mode_init_90
 		cmp  byte [pixel_bits],16
-		jnz mode_init_10
-		mov word [setpixel],setpixel_16
-		mov word [setpixel_a],setpixel_a_16
-		mov word [setpixel_t],setpixel_t_16
-		mov word [setpixel_ta],setpixel_ta_16
-		mov word [getpixel],getpixel_16
+		jnz mode_init_50
+		mov dword [setpixel],setpixel_16
+		mov dword [setpixel_a],setpixel_a_16
+		mov dword [setpixel_t],setpixel_t_16
+		mov dword [setpixel_ta],setpixel_ta_16
+		mov dword [getpixel],getpixel_16
 		jmp mode_init_90
-mode_init_10:
+mode_init_50:
 		cmp byte [pixel_bits],32
 		jnz mode_init_90
-		mov word [setpixel],setpixel_32
-		mov word [setpixel_a],setpixel_a_32
-		mov word [setpixel_t],setpixel_t_32
-		mov word [setpixel_ta],setpixel_ta_32
-		mov word [getpixel],getpixel_32
+		mov dword [setpixel],setpixel_32
+		mov dword [setpixel_a],setpixel_a_32
+		mov dword [setpixel_t],setpixel_t_32
+		mov dword [setpixel_ta],setpixel_ta_32
+		mov dword [getpixel],getpixel_32
 mode_init_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get VBE mode list.
 ;
 ;  [vbe_buffer]	buffer for vbe info
@@ -3308,270 +3231,91 @@ mode_init_90:
 ;  [vbe_mode_list]	mode list, last entry is 0xffff
 ;  [screen_mem]		video memory size
 ;
-get_vbe_modes:
-		push es
 
-		lfs si,[vbe_mode_list]
-		cmp word [fs:si],0
+		bits 32
+
+get_vbe_modes:
+		mov ebx,[vbe_mode_list]
+		cmp word [es:ebx],0
 		jnz get_vbe_modes_90
 
-		les di,[vbe_buffer]
+		mov edx,[vbe_buffer]
+		and dword [es:edx],0
+
+		mov eax,edx
+		shr eax,4
+		mov [rm_seg.es],ax
+		mov edi,edx
+		and edi,0fh
+
 		mov ax,4f00h
-		and dword [es:di],byte 0
-		push di
+		push ebx
+		push edx
 		int 10h
-		pop di
+		pop edx
+		pop ebx
+
+		mov edi,ebx
+
 		cmp ax,4fh
-		jnz get_vbe_modes_30
-		push word [es:di+12h]
+		jnz get_vbe_modes_20
+
+		push word [es:edx+12h]
 		pop word [screen_mem]
-		lfs si,[es:di+0eh]
-		les di,[vbe_mode_list]
-		mov cx,0ffh
+
+		movzx esi,word [es:edx+0eh]
+		movzx eax,word [es:edx+0eh+2]
+		shl eax,4
+		add esi,eax
+
+		mov ecx,0ffh
 get_vbe_modes_10:
-		fs lodsw
+		es lodsw
 		stosw
 		cmp ax,0ffffh
-		jz get_vbe_modes_20
-		dec cx
+		jz get_vbe_modes_30
+		dec ecx
 		jnz get_vbe_modes_10
-		mov word [es:di],0ffffh
 get_vbe_modes_20:
-		lfs si,[vbe_mode_list]
-		cmp word [fs:si],0
+		mov word [es:edi],0ffffh
+get_vbe_modes_30:
+		cmp word [es:ebx],0
 		jnz get_vbe_modes_90
 		; make sure it's not 0; mode 1 is the same as mode 0
-		mov byte [fs:si],1
-		jmp get_vbe_modes_90
-get_vbe_modes_30:
-		lfs si,[vbe_mode_list]
-		mov word [fs:si],0ffffh
+		inc word [es:esi]
 
 get_vbe_modes_90:
-		pop es
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Activate image from file.
-;
-;  eax:		lin ptr to image
-;
-; return:
-;  CF:		error
-;
-image_init:
-		push eax
-
-		call pcx_init
-		jnc image_init_90
-
-		call jpg_init
-
-image_init_90:
-		pop eax
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Activate pcx image from file.
-;
-;  eax:		lin ptr to image
-;
-; return:
-;  CF:		error
-;
-pcx_init:
-		push eax
-		lin2segofs eax,es,bx
-		cmp dword [es:bx],0801050ah
-		jnz pcx_init_80
-
-		mov cx,[es:bx+8]
-		inc cx
-		jz pcx_init_80
-		mov dx,[es:bx+10]
-		inc dx
-		jz pcx_init_80
-
-		push eax
-		push cx
-		push dx
-		push bx
-		push es
-		call find_mem_size
-		pop es
-		pop bx
-		pop dx
-		pop cx
-		pop edi
-
-		cmp eax,381h
-		jb pcx_init_80
-
-		lea esi,[eax+edi-301h]
-		lin2segofs esi,fs,si
-
-		cmp byte [fs:si],12
-		jnz pcx_init_80
-
-		mov byte [image_type],1		; pcx
-
-		mov [image],edi
-		mov [image_width],cx
-		mov [image_height],dx
-
-		lea ax,[bx+80h]
-		mov [image_data],ax
-		mov [image_data+2],es
-
-		inc si
-		mov [image_pal],si
-		mov [image_pal+2],fs
-
-		call parse_img
-
-		lfs si,[image_pal]
-		les di,[gfx_pal]
-
-		mov cx,300h
-		push cx
-		fs rep movsb
-		pop cx
-
-		xor ax,ax
-		mov dx,cx
-		dec di
-		std
-		repz scasb
-		cld
-		setnz al
-		sub dx,cx
-		sub dx,ax
-		xchg ax,dx
-		xor dx,dx
-		mov cx,3
-		div cx
-		sub ax,100h
-		neg ax
-		mov [pals],ax
-
-		clc
-		jmp pcx_init_90
-		
-pcx_init_80:
-		stc
-pcx_init_90:
-		pop eax
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Convert 32bit linear address to seg:ofs.
-;
-;  dword [esp + 2]:	linear address
-;
-; return:
-;  dword [esp + 2]:	seg:ofs
-;
-; Notes:
-;  - changes no regs
-;
-lin2so:
-		push eax
-		mov eax,[esp + 6]
-		shr eax,4
-		mov [esp + 8],ax
-		and word [esp + 6],byte 0fh
-		pop eax
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Convert seg:ofs to 32bit linear address.
-;
-;  dword [esp + 2]:	seg:ofs
-;
-; return:
-;  dword [esp + 2]:	linear address
-;
-; Notes:
-;  - changes no regs
-;
-so2lin:
-		push eax
-		movzx eax,word [esp + 8]
-		and word [esp + 8],byte 0
-		shl eax,4
-		add [esp + 6],eax
-		pop eax
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Convert 32bit linear address to seg:32_bit_ofs.
-;
-;  dword [esp + 2]:	linear address
-;  byte [pm_seg_mask]:	segment bit mask (bit 1-3: es, fs, gs)
-;
-; return:
-;  seg:			segment (as determined by [pm_seg_mask])
-;  dword [esp + 2]:	ofs
-;
-; Notes:
-;  - changes no regs
-;  - clears IF
-;
-_lin2seg:
-		push eax
-		mov eax,[esp + 6]
-		call lin_seg
-		pop eax
-		ret
-
-
-_lin2es:
-		mov byte [pm_seg_mask],(1 << 1)
-		jmp _lin2seg
-
-_lin2fs:
-		mov byte [pm_seg_mask],(1 << 2)
-		jmp _lin2seg
-
-_lin2gs:
-		mov byte [pm_seg_mask],(1 << 3)
-		jmp _lin2seg
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write text to console.
 ;
-; si		text (ACSIIZ)
+;  esi		format string
+;  [pf_gfx]	use ds:esi (0) or es:esi (1) 
 ;
+
+		bits 32
+
 printf:
 		mov byte [tmp_write_cnt],0
 printf_10:
 		call pf_next_char
-		or al,al
+		or eax,eax
 		jz printf_90
 		cmp al,'%'
 		jnz printf_70
 		mov byte [tmp_write_pad],' '
 		call pf_next_char
-		dec si
+		dec esi
 		cmp al,'0'
 		jnz printf_20
 		mov [tmp_write_pad],al
 printf_20:
 		call get_number
-		mov [tmp_write_num],cx
+		mov [tmp_write_num],ecx
 		call pf_next_char
-		or al,al
+		or eax,eax
 		jz printf_90
 		cmp al,'%'
 		jz printf_70
@@ -3584,25 +3328,19 @@ printf_23:
 		cmp al,'s'
 		jnz printf_30
 printf_24:
-		push si
+		push esi
 
 		call pf_next_arg
-		cmp byte [pf_gfx],0
-		jz printf_25
-		push es
-		lin2segofs eax,es,si
+		mov esi,eax
 		call write_str
-		pop es
-		jmp printf_27
-printf_25:
-		xchg ax,si
-		call write_str
-printf_27:
-		sub cx,[tmp_write_num]
-		neg cx
+
+		sub ecx,[tmp_write_num]
+		neg ecx
 		mov al,' '
 		call write_chars
-		pop si
+
+		pop esi
+
 		mov byte [pf_gfx_raw_char],0
 		jmp printf_10
 
@@ -3612,7 +3350,8 @@ printf_30:
 
 		mov dx,10
 printf_31:
-		push si
+		push esi
+
 		call pf_next_arg
 		or dh,dh
 		jz printf_34
@@ -3629,16 +3368,12 @@ printf_34:
 		call number
 		cmp byte [pf_gfx],0
 		jz printf_345
-		push es
-		push ds
-		pop es
-		call write_str
-		pop es
-		jmp printf_347
+		add esi,[prog.base]
 printf_345:
 		call write_str
 printf_347:
-		pop si
+		pop esi
+
 		jmp printf_10
 
 printf_35:
@@ -3672,10 +3407,10 @@ printf_40:
 		cmp al,'c'
 		jnz printf_45
 
-		push si
+		push esi
 		call pf_next_arg
 		call write_char
-		pop si
+		pop esi
 		jmp printf_10
 printf_45:
 
@@ -3690,10 +3425,18 @@ printf_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; get next char for printf
+; Get next char for printf.
 ;
-; either from ds:si or es:si
+; esi		string
+;  [pf_gfx]	use ds:esi (0) or es:esi (1) 
 ;
+; return:
+;  eax		char
+;  esi		points to next char
+;
+
+		bits 32
+
 pf_next_char:
 		xor eax,eax
 		cmp byte [pf_gfx],0
@@ -3703,57 +3446,61 @@ pf_next_char_50:
 		lodsb
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; return next printf arg
+; Get next printf arg.
+;
+;  [pf_gfx]	get arg from [tmp_write_data] (0) or pstack (1)
 ;
 ; return:
 ;  eax		arg
 ;
 ; changes no regs
 ;
+
+		bits 32
+
 pf_next_arg:
 		cmp byte [pf_gfx],0
 		jz pf_next_arg_50
-		push es
-		pushad
-		xor cx,cx
+		pusha
+		xor ecx,ecx
 		call get_pstack_tos
 		mov [tmp_write_data],eax
 		jnc pf_next_arg_20
-		and dword [tmp_write_data],byte 0
-		cmp word [pf_gfx_err],byte 0
+		and dword [tmp_write_data],0
+		cmp word [pf_gfx_err],0
 		jnz pf_next_arg_20
 		mov word [pf_gfx_err],pserr_pstack_underflow
 		jmp pf_next_arg_30
 pf_next_arg_20:
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 pf_next_arg_30:
-		popad
-		pop es
+		popa
 		mov eax,[tmp_write_data]
 		jmp pf_next_arg_90
 pf_next_arg_50:
-		push si
-		mov al,[tmp_write_cnt]
-		cbw
+		movzx eax,byte [tmp_write_cnt]
 		inc byte [tmp_write_cnt]
-		shl ax,2
-		mov si,ax
-		mov eax,[si+tmp_write_data]
-		pop si
+		mov eax,[tmp_write_data+4*eax]
 pf_next_arg_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write string.
 ;
-;  si		text
+;  esi		text
+;  [pf_gfx]	use ds:esi (0) or es:esi (1) 
 ;
 ; return:
-;  cx		length
+;  ecx		length
 ;
+
+		bits 32
+
 write_str:
-		xor cx,cx
+		xor ecx,ecx
 write_str_10:
 		call pf_next_char
 		cmp byte [pf_gfx],0
@@ -3761,38 +3508,49 @@ write_str_10:
 		call is_eot
 		jmp write_str_50
 write_str_40:
-		or al,al
+		or eax,eax
 write_str_50:
 		jz write_str_90
 		call write_char
-		inc cx
+		inc ecx
 		jmp write_str_10
 write_str_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write char multiple times.
 ;
-; al		char
-; cx		count (must be > 0)
+;  al		char
+;  ecx		count (does nothing if count <= 0)
+;  [pf_gfx]	write to console (0) or [pf_gfx_buf] (1)
 ;
+
+		bits 32
+
 write_chars:
-		cmp cx,0
+		cmp ecx,0
 		jle write_chars_90
 		call write_char
-		dec cx
+		dec ecx
 		jmp write_chars
 write_chars_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write single char.
 ;
-; al		char
+;  al		char
+;  [pf_gfx]	write to console (0) or [pf_gfx_buf] (1)
 ;
+; Changes no regs.
+;
+
+		bits 32
+
 write_char:
-		push es
-		pushad
+		pusha
 		cmp byte [pf_gfx],0
 		jz write_char_50
 		mov ebx,[pf_gfx_cnt]
@@ -3802,35 +3560,34 @@ write_char:
 		mov [pf_gfx_cnt],ebx
 		add ebx,[pf_gfx_buf]
 		dec ebx
-		lin2segofs ebx,es,di
 		mov ah,0
-		mov [es:di],ax
+		mov [es:ebx],ax
 		jmp write_char_90
 write_char_50:
 		cmp byte [pf_gfx_raw_char],0
 		jnz write_char_60
 		cmp al,0ah
 		jnz write_char_60
-		push ax
+		push eax
 		mov al,0dh
 		call write_cons_char
-		pop ax
+		pop eax
 write_char_60:
 		call write_cons_char
 write_char_90:
-		popad
-		pop es
+		popa
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Write char on text console.
 ;
-; al		char
+;  al		char
 ;
-write_cons_char:
-		push gs
-		push fs
 
+		bits 32
+
+write_cons_char:
 		; vesa mode?
 		cmp byte [gfx_mode+1],0
 		jnz write_cons_char_20
@@ -3872,26 +3629,26 @@ write_cons_char_40:
 write_cons_char_50:
 		call con_char_xy
 write_cons_char_90:
-
-		pop fs
-		pop gs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Convert string to number.
 ;
-;  si		string
+;  esi		string
+;  [pf_gfx]	use ds:esi (0) or es:esi (1) 
 ;
 ; return:
-;  cx		number
-;  si		points past number
+;  ecx		number
+;  esi		points past number
 ;  CF		not a number
 ;
+
+		bits 32
+
 get_number:
 
-		xor cx,cx
+		xor ecx,ecx
 		mov ah,1
 get_number_10:
 		call pf_next_char
@@ -3901,18 +3658,17 @@ get_number_10:
 		jb get_number_90
 		cmp al,9
 		ja get_number_90
-		cbw
-		imul cx,cx,10
-		add cx,ax
+		movzx eax,al
+		imul ecx,ecx,10
+		add ecx,eax
 		jmp get_number_10
 get_number_90:
-		dec si
+		dec esi
 		shr ah,1
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Convert a number to string.
 ;
 ;  eax		number
@@ -3921,23 +3677,26 @@ get_number_90:
 ;  dl		base
 ;
 ; return:
-;  si		string
+;  ds:esi	string
 ;
-number:
-		push es
+; Note: esi is relative to [prog.base], not 0!
+;
 
-		push ds
-		pop es
-		mov di,num_buf
-		push ax
-		push cx
+		bits 32
+
+number:
+		mov edi,num_buf
+		add edi,[prog.base]
+		push eax
+		push ecx
 		mov al,ch
-		mov cx,num_buf_end - num_buf
+		mov ecx,num_buf_end - num_buf
 		rep stosb
-		pop cx
-		pop ax
-		mov ch,0
+		pop ecx
+		pop eax
+		movzx ecx,cl
 		movzx ebx,dl
+		sub edi,[prog.base]
 number_10:
 		xor edx,edx
 		div ebx
@@ -3946,72 +3705,76 @@ number_10:
 		add dl,27h
 number_20:
 		add dl,'0'
-		dec di
-		mov [di],dl
+		dec edi
+		mov [edi],dl
 		or eax,eax
 		jz number_30
-		cmp di,num_buf
+		cmp edi,num_buf
 		ja number_10
 number_30:
-		mov si,di
-		or cx,cx
+		mov esi,edi
+		or ecx,ecx
 		jz number_90
-		cmp cl,num_buf_end - num_buf
+		cmp ecx,num_buf_end - num_buf
 		jae number_90
-		mov si,num_buf_end
-		sub si,cx
+		mov esi,num_buf_end
+		sub esi,ecx
 number_90:
-		pop es
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Print status/debug info window on console.
+;
+
+		bits 32
+
 ps_status_info:
-		xor dx,dx
+		xor edx,edx
 		call con_xy
 
-		mov si,msg_13
+		mov esi,msg_13
 		call printf
 
-		mov cx,7
+		mov ecx,7
 ps_status_info_10:
-		push cx
+		push ecx
 
 		call get_pstack_tos
 		jc ps_status_info_20
-		pf_arg_ushort 0,cx
+		pf_arg_uint 0,ecx
 		pf_arg_uchar 2,dl
 		pf_arg_uint 1,eax
-		mov si,msg_11
+		mov esi,msg_11
 		jmp ps_status_info_30
 ps_status_info_20:
-		mov si,msg_12
+		mov esi,msg_12
 ps_status_info_30:
 		call printf
 
-		pop cx
-		push cx
+		pop ecx
+		push ecx
 
 		call get_rstack_tos
 		jc ps_status_info_40
-		pf_arg_ushort 0,cx
+		pf_arg_uint 0,ecx
 		pf_arg_uchar 2,dl
 		pf_arg_uint 1,eax
-		mov si,msg_11
+		mov esi,msg_11
 		jmp ps_status_info_50
 ps_status_info_40:
-		mov si,msg_12
+		mov esi,msg_12
 ps_status_info_50:
 		call printf
 
-		mov si,msg_16
+		mov esi,msg_16
 		call printf
 
-		pop cx
-		dec cx
+		pop ecx
+		dec ecx
 		jge ps_status_info_10
 
-		mov si,msg_14
+		mov esi,msg_14
 		call printf
 
 		mov eax,[pscode_error_arg_0]
@@ -4020,13 +3783,13 @@ ps_status_info_50:
 		pf_arg_uint 2,eax
 		mov ax,[pscode_error]
 		pf_arg_ushort 0,ax
-		mov si,msg_17
+		mov esi,msg_17
 		cmp ax,100h
 		jb ps_status_info_60
-		mov si,msg_18
+		mov esi,msg_18
 		cmp ax,200h
 		jb ps_status_info_60
-		mov si,msg_19
+		mov esi,msg_19
 ps_status_info_60:
 		call printf
 
@@ -4041,45 +3804,44 @@ ps_status_info_60:
 		mov al,[pscode_type]
 		pf_arg_uchar 2,al
 
-		mov si,msg_10
+		mov esi,msg_10
 		cmp al,t_sec
 		jnz ps_status_info_70
-		mov si,msg_20
+		mov esi,msg_20
 ps_status_info_70:
 		call printf
 
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		jnc ps_status_info_71
 		mov dl,t_none
 		xor eax,eax
 ps_status_info_71:
+		mov ebp,[prog.base]
 		push eax
-		push ds
-		pop es
 		mov al,' '
-		mov di,num_buf
-		mov cx,1fh		; watch num_buf_end
+		lea edi,[num_buf+ebp]
+		mov ecx,1fh		; watch num_buf_end
 		rep stosb
-		mov [di],cl
+		mov [es:edi],cl
 		pop eax
 
 		cmp dl,t_string
 		jnz ps_status_info_79
 
-		lin2seg eax,fs,esi
+		mov esi,eax
 
-		mov di,num_buf
+		lea edi,[num_buf+ebp]
 		mov al,0afh
 		stosb
 ps_status_info_72:
-		fs a32 lodsb
+		es lodsb
 		or al,al
 		jz ps_status_info_73
 		stosb
-		cmp byte [es:di+1],0
+		cmp byte [es:edi+1],0
 		jnz ps_status_info_72
-		cmp byte [fs:esi],0
+		cmp byte [es:esi],0
 		jnz ps_status_info_74
 ps_status_info_73:		
 		mov al,0aeh
@@ -4089,48 +3851,47 @@ ps_status_info_74:
 ps_status_info_75:
 		stosb
 
-		call lin_seg_off
-
 ps_status_info_79:
-		mov si,num_buf
+		mov esi,num_buf
 		pf_arg_uint 0,esi
-		mov si,msg_21
+		mov esi,msg_21
 		call printf
 
 ps_status_info_80:
-		mov si,msg_15
+		mov esi,msg_15
 		call printf
 
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read a key (blocking).
 ;
 ; return:
 ;  eax		key
 ;
+
+		bits 32
+
 get_key:
 		mov ah,10h
 		int 16h
 		and eax,0ffffh
-		push es
-		push word 0
-		pop es
 		mov ecx,[es:417h-2]
 		xor cx,cx
 		add eax,ecx
-		pop es
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read a key, return 0 if timed out
 ;
 ; return:
 ;  eax		key (or 0)
+;
+
+		bits 32
+
 get_key_to:
 		call get_time
 		xchg eax,edx
@@ -4138,15 +3899,11 @@ get_key_to_20:
 		mov ah,11h
 		int 16h
 		jnz get_key_to_60
-		cmp byte [run_idle],0
+		cmp byte [idle.run],0
 		jz get_key_to_25
 		call idle
 get_key_to_25:
-		push es
-		push byte 0
-		pop es
 		mov ax,[es:417h]
-		pop es
 		cmp ax,[kbd_status]
 		mov [kbd_status],ax
 		jz get_key_to_30
@@ -4179,9 +3936,9 @@ get_key_to_30:
 
 get_key_to_60:
 		pushf
-		cmp dword [input_timeout],byte 0
+		cmp dword [input_timeout],0
 		jz get_key_to_70
-		and dword [input_timeout],byte 0
+		and dword [input_timeout],0
 		call timeout
 get_key_to_70:
 		popf
@@ -4193,10 +3950,16 @@ get_key_to_70:
 get_key_to_80:
 		call get_key
 get_key_to_90:
+		mov byte [idle.invalid],1
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Clear keyboard input buffer.
 ;
+
+		bits 32
+
 clear_kbd_queue:
 		mov ah,11h
 		int 16h
@@ -4209,21 +3972,28 @@ clear_kbd_queue_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get system time.
 ;
+; return:
+;  eax		clock ticks since midnight (18.2/s)
+;
+
+		bits 32
+
 get_time:
-		push cx
-		push dx
-		xor ax,ax
+		push ecx
+		push edx
+		xor eax,eax
 		int 1ah
 		push cx
 		push dx
 		pop eax
-		pop dx
-		pop cx
+		pop edx
+		pop ecx
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Convert 8 bit bcd to binary.
 ;
 ;  al		bcd
@@ -4231,26 +4001,37 @@ get_time:
 ; return
 ;  ax		binary
 ;
+
+		bits 32
+
 bcd2bin:
-		push dx
+		push edx
 		mov dl,al
 		shr al,4
 		and dl,0fh
 		mov ah,10
 		mul ah
 		add al,dl
-		pop dx
+		pop edx
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get date.
 ;
+; return:
+;  eax		date (year:16, month:8, day:8)
+;
+
+		bits 32
+
 get_date:
 		clc
 		mov ah,4
 		int 1ah
 		jnc get_date_10
-		xor dx,dx
-		xor cx,cx
+		xor edx,edx
+		xor ecx,ecx
 get_date_10:
 		mov al,ch
 		call bcd2bin
@@ -4268,8 +4049,8 @@ get_date_10:
 		mov eax,ebx
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Set console cursor position.
 ;
 ;  dh		row
@@ -4277,6 +4058,9 @@ get_date_10:
 ;
 ; return:
 ;
+
+		bits 32
+
 con_xy:
 		mov bh,0
 		mov ah,2
@@ -4286,37 +4070,73 @@ con_xy:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-idle_data	dd 0
-idle_data2	dd 0
+; Idle task.
+;
+; Run when we are waiting for keyboard input.
+;
 
-%include	"kroete.inc"
+		bits 32
 
 idle:
-		push es
-		push fs
-		push gs
-		pushad
+		pusha
 
-		les si,[idle_data]
-		mov bx,[idle_data2]
+		mov edi,[idle.draw_buffer]
+		or edi,edi
+		jz idle_90
+
+		push dword [gfx_cur]
+
+		mov ax,[screen_width]
+		sub ax,kroete.width
+		shr ax,1
+		mov [gfx_cur_x],ax
+
+		mov ax,[screen_height]
+		sub ax,kroete.height
+		shr ax,1
+		mov [gfx_cur_y],ax
+
+		cmp byte [idle.invalid],0
+		jz idle_10
+		push edi
+		mov dx,[es:edi]
+		mov cx,[es:edi+2]
+		add edi,4
+		call save_bg
+		pop edi
+		mov byte [idle.invalid],0
+idle_10:
+
+		mov esi,[idle.data1]
+		push edi
 		call kroete
+		pop edi
 
-		popad
-		pop gs
-		pop fs
-		pop es
+		mov dx,[es:edi]
+		mov cx,[es:edi+2]
+		add edi,4
+		mov bx,dx
+		imul bx,[pixel_bytes]
+		call restore_bg
+
+idle_90:
+		pop dword [gfx_cur]
+
+		popa
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Execute bytecode.
 ;
-; Execute ps code.
-;
-;  eax		start address, relative to 
+;  eax		start address, relative to [pscode_start]
 ;
 ; return:
 ;  CF		error
 ;
+
+		bits 32
+
 run_pscode:
 		mov [pscode_instr],eax
 		mov [pscode_next_instr],eax
@@ -4345,7 +4165,7 @@ run_pscode_10:
 run_pscode_15:
 		mov ebx,eax
 		add eax,[pscode_start]
-		lin2segofs eax,es,si
+		mov esi,eax
 		es lodsb
 		xor ecx,ecx
 		mov cl,al
@@ -4359,20 +4179,20 @@ run_pscode_15:
 		cmp cl,0
 		jz run_pscode_20
 
-		mov dl,[es:si]
+		mov dl,[es:esi]
 		cmp cl,1
 		jz run_pscode_20
 
-		mov dx,[es:si]
+		mov dx,[es:esi]
 		cmp cl,2
 		jz run_pscode_20
 
-		mov edx,[es:si]
+		mov edx,[es:esi]
 		and edx,0ffffffh
 		cmp cl,3
 		jz run_pscode_20
 
-		mov edx,[es:si]
+		mov edx,[es:esi]
 run_pscode_20:		
 		stc
 		adc ebx,ecx		; ebx+ecx+1
@@ -4422,7 +4242,7 @@ run_pscode_455:
 		jnz run_pscode_46
 
 		; look it up in the dictionary, then continue
-		xchg ax,cx
+		mov ecx,eax
 		call get_dict_entry
 		mov bp,pserr_invalid_dict
 		jc run_pscode_90
@@ -4432,7 +4252,7 @@ run_pscode_455:
 		mov [pscode_error_arg_1],edx
 
 run_pscode_46:
-		pushad
+		pusha
 		cmp byte [show_debug_info],0
 		jz run_pscode_47
 		call ps_status_info
@@ -4457,7 +4277,7 @@ run_pscode_477:
 		mov eax,[pscode_next_instr]
 		mov [pscode_next_break],eax
 run_pscode_48:
-		popad
+		popa
 
 		; actually do something
 		cmp dl,t_none
@@ -4483,13 +4303,13 @@ run_pscode_50:
 		jnz run_pscode_51
 		mov dl,t_int		; always use t_int
 run_pscode_51:
-		mov cx,[pstack_ptr]
-		cmp cx,[pstack_size]
+		mov ecx,[pstack.ptr]
+		cmp ecx,[pstack.size]
 		mov bp,pserr_pstack_overflow
 		jae run_pscode_80
-		inc word [pstack_ptr]
+		inc dword [pstack.ptr]
 
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 		jc run_pscode_90
 		jmp run_pscode_10
@@ -4501,13 +4321,10 @@ run_pscode_52:
 		cmp eax,prim_functions
 		mov bp,pserr_invalid_prim
 		jae run_pscode_80
-		xchg ax,si
-		add si,si
-		mov ax,[si+jt_p_none]
-		or ax,ax		; implemented?
+		movzx eax,word [jt_p_none+2*eax]
+		or eax,eax		; implemented?
 		jz run_pscode_80
-
-		call ax
+		call eax
 		jc run_pscode_90
 		jmp run_pscode_10
 
@@ -4524,13 +4341,13 @@ run_pscode_53:
 		cmp byte [pscode_type],t_sec
 		jnz run_pscode_50
 
-		mov cx,[rstack_ptr]
-		cmp cx,[rstack_size]
+		mov ecx,[rstack.ptr]
+		cmp ecx,[rstack.size]
 		mov bp,pserr_rstack_overflow
 		jae run_pscode_80
-		inc word [rstack_ptr]
+		inc dword [rstack.ptr]
 
-		xor cx,cx
+		xor ecx,ecx
 		call set_rstack_tos
 		jc run_pscode_90
 		jmp run_pscode_10
@@ -4539,7 +4356,7 @@ run_pscode_54:
 		cmp dl,t_ret
 		jnz run_pscode_70
 
-		xor cx,cx
+		xor ecx,ecx
 		call get_rstack_tos
 		jnc run_pscode_55
 		mov bp,pserr_rstack_underflow
@@ -4564,23 +4381,23 @@ run_pscode_55:
 		jnz run_pscode_80
 
 		; forall
-		cmp word [rstack_ptr],byte 5
+		cmp dword [rstack.ptr],5
 		mov bp,pserr_rstack_underflow
 		jc run_pscode_90
 
-		mov cx,1
+		mov ecx,1
 		call get_rstack_tos		; count
 		cmp dl,t_int
 		jnz run_pscode_66
 
-		mov cx,2
+		mov ecx,2
 		push eax
 		call get_rstack_tos		; length
 		pop esi
 		cmp dl,t_int
 		jnz run_pscode_66
 
-		mov cx,3
+		mov ecx,3
 		push eax
 		push esi
 		call get_rstack_tos		; string/array
@@ -4602,8 +4419,8 @@ run_pscode_57:
 		cmp esi,ecx
 		jae run_pscode_64
 
-		push dx
-		mov cx,1
+		push edx
+		mov ecx,1
 		mov dl,t_int
 		push eax
 		push esi
@@ -4611,44 +4428,44 @@ run_pscode_57:
 		call set_rstack_tos
 		pop eax
 		pop ecx
-		pop dx
+		pop edx
 
 		xchg dl,dh
 		call p_get
 		mov bp,pserr_invalid_range
 		jc run_pscode_80
 
-		mov cx,[pstack_ptr]
-		cmp cx,[pstack_size]
+		mov ecx,[pstack.ptr]
+		cmp ecx,[pstack.size]
 		jae run_pscode_80
-		inc word [pstack_ptr]
-		xor cx,cx
+		inc dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 		jc run_pscode_90
 
-		xor cx,cx
+		xor ecx,ecx
 		call get_rstack_tos
 		jmp run_pscode_69
 
 
 run_pscode_62:
 		; for
-		cmp word [rstack_ptr],byte 5
+		cmp dword [rstack.ptr],5
 		mov bp,pserr_rstack_underflow
 		jc run_pscode_90
 
-		mov cx,2
+		mov ecx,2
 		call get_rstack_tos		; step
 		cmp dl,t_int
 		jnz run_pscode_66
-		mov cx,1
+		mov ecx,1
 		push eax
 		call get_rstack_tos		; limit
 		pop esi
 		cmp dl,t_int
 		jnz run_pscode_66
 		push eax
-		mov cx,3
+		mov ecx,3
 		push esi
 		call get_rstack_tos		; counter
 		pop esi
@@ -4665,35 +4482,35 @@ run_pscode_63:
 		pop eax
 		jl run_pscode_64
 
-		mov cx,3
+		mov ecx,3
 		push eax
 		call set_rstack_tos
 		pop eax
-		mov cx,[pstack_ptr]
-		cmp cx,[pstack_size]
+		mov ecx,[pstack.ptr]
+		cmp ecx,[pstack.size]
 		jae run_pscode_80
-		inc word [pstack_ptr]
-		xor cx,cx
+		inc dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 		jc run_pscode_90
-		xor cx,cx
+		xor ecx,ecx
 		call get_rstack_tos
 		jmp run_pscode_69
 run_pscode_64:
-		mov cx,4
+		mov ecx,4
 		call get_rstack_tos
-		sub word [rstack_ptr],byte 5
+		sub dword [rstack.ptr],5
 		jmp run_pscode_69
 
 
 run_pscode_65:
 		; repeat
-		cmp word [rstack_ptr],byte 3
+		cmp dword [rstack.ptr],3
 		mov bp,pserr_rstack_underflow
 		jc run_pscode_90
 		push eax
-		mov cx,1
+		mov ecx,1
 		call get_rstack_tos
 		pop ebx
 		cmp dl,t_int
@@ -4702,18 +4519,18 @@ run_pscode_66:
 		jnz run_pscode_80
 		dec eax
 		jz run_pscode_67
-		mov cx,1
+		mov ecx,1
 		push ebx
 		call set_rstack_tos
 		pop eax
 		jmp run_pscode_69
 run_pscode_67:
-		mov cx,2
+		mov ecx,2
 		call get_rstack_tos
-		sub word [rstack_ptr],byte 2
+		sub dword [rstack.ptr],2
 
 run_pscode_68:
-		dec word [rstack_ptr]
+		dec dword [rstack.ptr]
 run_pscode_69:
 		mov [pscode_next_instr],eax
 
@@ -4747,24 +4564,28 @@ run_pscode_90:
 		ret
 
 
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get one argument from stack.
 ;
 ;  dl		tos type
+;
 ; return:
 ;  eax		tos
 ;  dl		actual tos types (even if CF is set)
 ;  CF		error
 ;
+
+		bits 32
+
 get_1arg:
 		xor eax,eax
-		cmp word [pstack_ptr],byte 1
+		cmp dword [pstack.ptr],1
 		mov bp,pserr_pstack_underflow
 		jc get_1arg_90
-		push dx
-		xor cx,cx
+		push edx
+		xor ecx,ecx
 		call get_pstack_tos
-		pop bx
+		pop ebx
 		; ignore type check if t_none was requested
 		cmp bl,t_none
 		jz get_1arg_90
@@ -4777,6 +4598,7 @@ get_1arg_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get two arguments from stack.
 ;
 ;  dl		tos type
 ;  dh		tos + 1 type
@@ -4786,25 +4608,28 @@ get_1arg_90:
 ;  dx		actual tos types (even if CF is set)
 ;  CF		error
 ;
+
+		bits 32
+
 get_2args:
 		xor eax,eax
 		xor ecx,ecx
-		mov bx,dx
-		xor dx,dx
-		cmp word [pstack_ptr],byte 2
+		mov ebx,edx
+		xor edx,edx
+		cmp dword [pstack.ptr],2
 		mov bp,pserr_pstack_underflow
 		jc get_2args_90
-		push bx
-		inc cx
+		push ebx
+		inc ecx
 		call get_pstack_tos
-		push dx
+		push edx
 		push eax
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		pop ecx
-		pop bx
+		pop ebx
 		mov dh,bl
-		pop bx
+		pop ebx
 
 		; ignore type check if t_none was requested
 		cmp bh,t_none
@@ -4823,10 +4648,54 @@ get_2args_80:
 get_2args_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get array/string/ptr element.
+;
+;  dh, ecx	obj
+;  eax		index
+;
+; return:
+;  dl, eax	element
+;  CF		0/1 ok/not ok
+;
+
+		bits 32
+
+p_get:
+		cmp dh,t_array
+		jz p_get_50
+		cmp dh,t_string
+		jz p_get_10
+		cmp dh,t_ptr
+		stc
+		jnz p_get_90
+p_get_10:
+		mov dl,t_int
+		movzx eax,byte [es:eax+ecx]
+		jmp p_get_80
+p_get_50:
+		mov bp,pserr_invalid_range
+		movzx ebx,word [es:ecx]
+		cmp eax,ebx
+		cmc
+		jc p_get_90
+
+		lea eax,[eax+4*eax]
+
+		mov dl,[es:ecx+eax+2]
+		mov eax,[es:ecx+eax+3]
+p_get_80:
+		clc
+p_get_90:
+		ret
+
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
 ; Our primary functions.
 ;
+
 
 ;; { - start code definition
 ;
@@ -4868,16 +4737,19 @@ get_2args_90:
 ; example 
 ;   [ 1 2 3 ]	% array with 3 elements
 ;
+
+		bits 32
+
 prim_astart:
-		mov ax,[pstack_ptr]
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_astart_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_prim
 		mov eax,(jt_p_astart - jt_p_none) / 2	; we need just some mark
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_astart_90:
 		ret
@@ -4900,66 +4772,65 @@ prim_astart_90:
 ;   /foo [ "some" "text" ] def	% array with 2 elements
 ;   foo free			% free memory
 ;
+
+		bits 32
+
 prim_aend:
-		xor cx,cx
+		xor ecx,ecx
 prim_aend_10:
-		push cx
+		push ecx
 		call get_pstack_tos
-		pop cx
+		pop ecx
 		mov bp,pserr_pstack_underflow
 		jc prim_aend_90
-		inc cx
+		inc ecx
 		cmp dl,t_prim
 		jnz prim_aend_10
 		cmp eax,(jt_p_astart - jt_p_none) / 2
 		jnz prim_aend_10
 
-		dec cx
-		push cx
-		mov ax,5
-		mul cx
-		inc ax
-		inc ax
-		movzx eax,ax
+		dec ecx
+		lea eax,[ecx+4*ecx+2]
+
+		push ecx
 		call calloc
-		pop cx
+		pop ecx
+
 		or eax,eax
 		mov bp,pserr_no_memory
 		stc
 		jz prim_aend_90
 
-		push cx
+		push ecx
 		push eax
 
-		lin2segofs eax,es,di
-		mov [es:di],cx
-		inc di
-		inc di
+		mov edi,eax
+		mov [es:edi],cx
+		inc edi
+		inc edi
 
 prim_aend_40:
-		sub cx,1
+		sub ecx,1
 		jc prim_aend_60
 
-		push es
-		push di
-		push cx
+		push edi
+		push ecx
 		call get_pstack_tos
-		pop cx
-		pop di
-		pop es
+		pop ecx
+		pop edi
 
-		mov [es:di],dl
-		mov [es:di+1],eax
-		add di,5
+		mov [es:edi],dl
+		mov [es:edi+1],eax
+		add edi,5
 		jmp prim_aend_40
 
 prim_aend_60:
 
 		pop eax
-		pop cx
-		sub [pstack_ptr],cx
+		pop ecx
+		sub [pstack.ptr],ecx
 		mov dl,t_array
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_aend_90:
 		ret
@@ -4985,6 +4856,9 @@ prim_aend_90:
 ;
 ;   [ 10 20 30 ] 2 get		% 30
 ;
+
+		bits 32
+
 prim_get:
 		mov dx,t_int + (t_array << 8)
 		call get_2args
@@ -4998,50 +4872,10 @@ prim_get_10:
 		call p_get
 		jc prim_get_90
 
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_get_90:
-		ret
-
-
-;  dh, ecx	obj
-;  eax		index
-; Return:
-;  dl, eax	element
-;  CF		0/1 ok/not ok
-;
-p_get:
-		cmp dh,t_array
-		jz p_get_50
-		cmp dh,t_string
-		jz p_get_10
-		cmp dh,t_ptr
-		stc
-		jnz p_get_90
-p_get_10:
-		add ecx,eax
-		lin2segofs ecx,es,di
-		mov dl,t_int
-		movzx eax,byte [es:di]
-		jmp p_get_80
-p_get_50:
-		lin2segofs ecx,es,di
-		mov bp,pserr_invalid_range
-		cmp ax,[es:di]
-		cmc
-		jc p_get_90
-
-		add di,ax
-		add ax,ax
-		add ax,ax
-		add di,ax
-
-		mov dl,[es:di+2]
-		mov eax,[es:di+3]
-p_get_80:
-		clc
-p_get_90:
 		ret
 
 
@@ -5073,21 +4907,24 @@ p_get_90:
 ;   But don't do this:
 ;   "abc" 1 'X' put		% modifies string constant "abc" to "aXc"!
 ;
+
+		bits 32
+
 prim_put:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 3
+		cmp dword [pstack.ptr],3
 		jc prim_put_90
 
 		mov bp,pserr_wrong_arg_types
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		mov dh,0
-		push dx
+		push edx
 		push eax
 		mov dx,t_none + (t_int << 8)
 		call get_2args
 		pop ebx
-		pop bp
+		pop ebp
 		shl edx,16
 		mov dx,bp
 		rol edx,8
@@ -5100,29 +4937,24 @@ prim_put:
 		mov bp,pserr_wrong_arg_types
 		jnz prim_put_90
 prim_put_30:
-		add ebx,ecx
-		lin2segofs ebx,es,di
-		mov [es:di],al
+		mov [es:ebx+ecx],al
 		jmp prim_put_80
 prim_put_50:
 		shr edx,24
-		lin2segofs ebx,es,di
 
-		cmp cx,[es:di]
+		movzx esi,word [es:ebx]
+		cmp ecx,esi
 		cmc
 		mov bp,pserr_invalid_range
 		jc prim_put_90
 		
-		add di,cx
-		add cx,cx
-		add cx,cx
-		add di,cx
+		lea ecx,[ecx+4*ecx]
 
-		mov [es:di+2],dl
-		mov [es:di+3],eax
+		mov [es:ebx+ecx+2],dl
+		mov [es:ebx+ecx+3],eax
 
 prim_put_80:
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 prim_put_90:
 		ret
 
@@ -5150,55 +4982,23 @@ prim_put_90:
 ;   foo length		% 10
 ;   foo 3 add length	% 7
 ;
+
+		bits 32
+
 prim_length:
 		mov dl,t_none
 		call get_1arg
 		jc prim_length_90
 		call get_length
 		jc prim_length_90
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 prim_length_90:
 		ret
 
 
-;  dl, eax	obj
-; Return:
-;  eax		length
-;   CF		0/1 ok/not ok
-;
-get_length:
-		cmp dl,t_ptr
-		jz get_length_10
-		lin2segofs eax,es,si
-		cmp dl,t_array
-		jz get_length_20
-		cmp dl,t_string
-		jz get_length_30
-		stc
-		jmp get_length_90
-get_length_10:
-		call find_mem_size
-		jmp get_length_80
-get_length_20:
-		movzx eax,word [es:si]
-		jmp get_length_80
-get_length_30:
-		xor cx,cx
-		xor eax,eax
-get_length_40:
-		es lodsb
-		call is_eot
-		loopnz get_length_40	; max 64k length
-		not cx
-		movzx eax,cx
-get_length_80:
-		clc
-get_length_90:
-		ret
-
-
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;; array - create an empty array
 ;
 ; group: mem
@@ -5215,30 +5015,27 @@ get_length_90:
 ;   foo 4 123 put	% foo[4] = 123
 ;   foo free		% free foo
 ;
+
+		bits 32
+
 prim_array:
 		mov dl,t_int
 		call get_1arg
 		jc prim_array_90
-		cmp eax,(0fff0h-2)/5
+		cmp eax,10000h
 		cmc
 		mov bp,pserr_invalid_range
 		jc prim_array_90
-		push ax
-		mov cx,5
-		mul cx
-		inc ax
-		inc ax
+		push eax
+		lea eax,[eax+4*eax+2]
 		call calloc
-		pop cx
+		pop ecx
 		or eax,eax
 		stc
 		mov bp,pserr_no_memory
 		jz prim_array_90
-
-		lin2segofs eax,es,di
-		mov [es:di],cx
-
-		xor cx,cx
+		mov [es:eax],cx
+		xor ecx,ecx
 		mov dl,t_array
 		call set_pstack_tos
 prim_array_90:
@@ -5255,11 +5052,14 @@ prim_array_90:
 ;   % status: true or false
 ;   "bad" status { pop "ok" } if	% "bad" or "ok"
 ;
+
+		bits 32
+
 prim_pop:
-		cmp word [pstack_ptr],byte 1
+		cmp dword [pstack.ptr],1
 		mov bp,pserr_pstack_underflow
 		jc prim_pop_90
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 prim_pop_90:
 		ret
 
@@ -5277,18 +5077,21 @@ prim_pop_90:
 ;   dup 'c' eq { do_c } if	% if key = 'c'
 ;   pop
 ;
+
+		bits 32
+
 prim_dup:
-		mov cx,[pstack_ptr]
-		cmp cx,[pstack_size]
+		mov ecx,[pstack.ptr]
+		cmp ecx,[pstack.size]
 		cmc
 		mov bp,pserr_pstack_overflow
 		jb prim_dup_90
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		mov bp,pserr_pstack_underflow
 		jc prim_dup_90
-		mov cx,0
-		inc word [pstack_ptr]
+		xor ecx,ecx
+		inc dword [pstack.ptr]
 		call set_pstack_tos
 prim_dup_90:
 		ret
@@ -5300,18 +5103,21 @@ prim_dup_90:
 ;
 ; ( obj1 obj2 -- obj1 obj2 obj1 )
 ;
+
+		bits 32
+
 prim_over:
-		mov cx,[pstack_ptr]
-		cmp cx,[pstack_size]
+		mov ecx,[pstack.ptr]
+		cmp ecx,[pstack.size]
 		cmc
 		mov bp,pserr_pstack_overflow
 		jb prim_over_90
-		mov cx,1
+		mov ecx,1
 		call get_pstack_tos
 		mov bp,pserr_pstack_underflow
 		jc prim_over_90
-		mov cx,0
-		inc word [pstack_ptr]
+		xor ecx,ecx
+		inc dword [pstack.ptr]
 		call set_pstack_tos
 prim_over_90:
 		ret
@@ -5329,22 +5135,24 @@ prim_over_90:
 ;   /dup { 0 index } def
 ;   /over { 1 index } def
 ;
+
+		bits 32
+
 prim_index:
 		mov dl,t_int
 		call get_1arg
 		jc prim_index_90
 
-		movzx edx,word [pstack_ptr]
+		mov edx,[pstack.ptr]
 		sub edx,2
 		jc prim_index_90
 		cmp edx,eax
 		mov bp,pserr_pstack_underflow
 		jc prim_index_90
 
-		inc ax
-		xchg ax,cx
+		lea ecx,[eax+1]
 		call get_pstack_tos
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_index_90:
 		ret
@@ -5371,6 +5179,9 @@ prim_index_90:
 ;   foo 2 get				% "abc"
 ;   exec				% still "abc"
 ;
+
+		bits 32
+
 prim_exec:
 		mov dl,t_none
 		call pr_setobj_or_none
@@ -5401,6 +5212,9 @@ prim_exec_50:
 ;
 ;   "abc" 1 add		% "bc"
 ;
+
+		bits 32
+
 prim_add:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5412,8 +5226,8 @@ prim_add:
 		jnz prim_add_90
 prim_add_50:
 		add eax,ecx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,dh
 		call set_pstack_tos
 prim_add_90:
@@ -5444,6 +5258,9 @@ prim_add_90:
 ;   "abcd" 3 add	% "d"
 ;   2 sub		% "bcd"
 ;
+
+		bits 32
+
 prim_sub:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5462,8 +5279,8 @@ prim_sub_40:
 prim_sub_50:
 		xchg eax,ecx
 		sub eax,ecx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,dh
 		call set_pstack_tos
 prim_sub_90:
@@ -5481,13 +5298,16 @@ prim_sub_90:
 ; example
 ;   2 3 mul	% 6
 ;
+
+		bits 32
+
 prim_mul:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_mul_90
 		imul ecx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 prim_mul_90:
@@ -5505,6 +5325,9 @@ prim_mul_90:
 ; example
 ;   17 3 div	% 5
 ;
+
+		bits 32
+
 prim_div:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5516,8 +5339,8 @@ prim_div:
 		xchg eax,ecx
 		cdq
 		idiv ecx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 prim_div_90:
@@ -5535,6 +5358,9 @@ prim_div_90:
 ; example
 ;   17 3 mod	% 2
 ;
+
+		bits 32
+
 prim_mod:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5547,8 +5373,8 @@ prim_mod:
 		cdq
 		idiv ecx
 		xchg eax,edx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 prim_mod_90:
@@ -5566,12 +5392,15 @@ prim_mod_90:
 ; example
 ;   5 neg	% -5
 ;
+
+		bits 32
+
 prim_neg:
 		mov dl,t_int
 		call get_1arg
 		jc prim_neg_90
 		neg eax
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_neg_90:
 		ret
@@ -5588,6 +5417,9 @@ prim_neg_90:
 ; example
 ;   -6 abs	% 6
 ;
+
+		bits 32
+
 prim_abs:
 		mov dl,t_int
 		call get_1arg
@@ -5596,7 +5428,7 @@ prim_abs:
 		jns prim_abs_50
 		neg eax
 prim_abs_50:
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_abs_90:
 		ret
@@ -5613,6 +5445,9 @@ prim_abs_90:
 ; example
 ;   4 11 min	% 4
 ;
+
+		bits 32
+
 prim_min:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5621,8 +5456,8 @@ prim_min:
 		jle prim_min_50
 		xchg eax,ecx
 prim_min_50:
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_min_90:
 		ret
@@ -5639,6 +5474,9 @@ prim_min_90:
 ; example
 ;   4 11 max	% 11
 ;
+
+		bits 32
+
 prim_max:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5647,11 +5485,14 @@ prim_max:
 		jge prim_max_50
 		xchg eax,ecx
 prim_max_50:
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_max_90:
 		ret
+
+
+		bits 32
 
 plog_args:
 		mov dx,t_int + (t_int << 8)
@@ -5664,7 +5505,7 @@ plog_args:
 		cmp dx,t_bool + (t_bool << 8)
 		jz plog_args_20
 		stc
-		pop ax
+		pop eax			; don't return
 		jmp plog_args_90
 plog_args_20:
 		mov dl,t_bool
@@ -5698,12 +5539,15 @@ plog_args_90:
 ;
 ;   10 true and		% gives true, but please avoid this
 ;
+
+		bits 32
+
 prim_and:
 		call plog_args
 		and eax,ecx
 prim_and_50:
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 		ret
 
@@ -5728,6 +5572,9 @@ prim_and_50:
 ;
 ;   10 true or		% gives true, but please avoid this
 ;
+
+		bits 32
+
 prim_or:
 		call plog_args
 		or eax,ecx
@@ -5754,6 +5601,9 @@ prim_or:
 ;
 ;   10 true xor		% gives false, but please avoid this
 ;
+
+		bits 32
+
 prim_xor:
 		call plog_args
 		xor eax,ecx
@@ -5775,8 +5625,11 @@ prim_xor:
 ;
 ;   0 not		% -1
 ;
+
+		bits 32
+
 prim_not:
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		jc prim_not_90
 		cmp dl,t_int
@@ -5789,7 +5642,7 @@ prim_not:
 		not eax
 prim_not_50:
 		not eax
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_not_90:
 		ret
@@ -5806,6 +5659,9 @@ prim_not_90:
 ; example
 ;   5 2 shl	% 20
 ;
+
+		bits 32
+
 prim_shl:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5816,8 +5672,8 @@ prim_shl:
 		jb prim_shl_50
 		xor eax,eax
 prim_shl_50:
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_shl_90:
 		ret
@@ -5834,6 +5690,9 @@ prim_shl_90:
 ; example
 ;   15 2 shr	% 3
 ;
+
+		bits 32
+
 prim_shr:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -5844,8 +5703,8 @@ prim_shr:
 		mov cl,1fh
 prim_shr_50:
 		sar eax,cl
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_shr_90:
 		ret
@@ -5864,6 +5723,9 @@ prim_shr_90:
 ;
 ;   /neg { -1 mul } def	% define 'neg' function
 ;
+
+		bits 32
+
 prim_def:
 		mov dx,t_none + (t_dict_idx << 8)
 		call get_2args
@@ -5872,11 +5734,11 @@ prim_def:
 		mov bp,pserr_wrong_arg_types
 		stc
 		jz prim_def_90
-		; note: cx is index
+		; note: ecx is index
 		call set_dict_entry
 		mov bp,pserr_invalid_dict
 		jc prim_def_90
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_def_90:
 		ret
 
@@ -5901,6 +5763,9 @@ prim_def_90:
 ;
 ;   "" { "is always true" show } if	% strings are always 'true'
 ;
+
+		bits 32
+
 prim_if:
 		mov dx,t_code + (t_bool << 8)
 		call get_2args
@@ -5917,20 +5782,20 @@ prim_if:
 		cmp dh,t_array
 		jnz prim_if_80
 prim_if_20:
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 		or ecx,ecx
 		jz prim_if_90
 		
 		; branch
 		xchg eax,[pscode_next_instr]
 
-		mov cx,[rstack_ptr]
-		cmp cx,[rstack_size]
+		mov ecx,[rstack.ptr]
+		cmp ecx,[rstack.size]
 		mov bp,pserr_rstack_overflow
 		jae prim_if_80
-		inc word [rstack_ptr]
+		inc dword [rstack.ptr]
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_if			; mark as 'if' block
 		call set_rstack_tos
 		jnc prim_if_90
@@ -5960,8 +5825,11 @@ prim_if_90:
 ; example
 ;   x1 x2 gt { "x1 > x2" } { "x1 &lt;= x2" } ifelse show
 ;
+
+		bits 32
+
 prim_ifelse:
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		jc prim_ifelse_90
 		mov bp,pserr_wrong_arg_types
@@ -5985,7 +5853,7 @@ prim_ifelse_10:
 		pop ebx
 		jc prim_ifelse_90
 
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 		or ebx,ebx
 		jz prim_ifelse_20
 		xchg dl,dh
@@ -5994,13 +5862,13 @@ prim_ifelse_20:
 		; branch
 		xchg eax,[pscode_next_instr]
 
-		mov cx,[rstack_ptr]
-		cmp cx,[rstack_size]
+		mov ecx,[rstack.ptr]
+		cmp ecx,[rstack.size]
 		mov bp,pserr_rstack_overflow
 		jae prim_ifelse_80
-		inc word [rstack_ptr]
+		inc dword [rstack.ptr]
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_if			; mark as 'if' block
 		call set_rstack_tos
 		jnc prim_ifelse_90
@@ -6011,15 +5879,21 @@ prim_ifelse_90:
 		ret
 
 
-
-; compare 2 strings
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Compare 2 strings.
+;
+;  eax, ecx	strings
+;
 ; return:
-;  cl, al	last compared chars (if !=)
+;  al, cl	last compared chars (if !=)
 ;  edx		length of identical parts
+;
+
+		bits 32
+
 pcmp_str:
-		push fs
-		lin2segofs eax,fs,si
-		lin2segofs ecx,es,di
+		mov esi,eax
+		mov edi,ecx
 
 		xor ecx,ecx
 		xor eax,eax
@@ -6027,40 +5901,34 @@ pcmp_str:
 pcmp_str_20:
 		mov ah,al
 		mov ch,cl
-		mov al,[fs:si]
-		mov cl,[es:di]
+		mov al,[es:esi]
+		mov cl,[es:edi]
 		cmp al,cl
 		jnz pcmp_str_50
 		or al,al
 		jz pcmp_str_50
 		or cl,cl
 		jz pcmp_str_50
-		inc si
-		jnz pcmp_str_30
-		mov bx,fs
-		add bx,1000h
-		mov fs,bx
-pcmp_str_30:
-		inc di
-		jnz pcmp_str_40
-		mov bx,es
-		add bx,1000h
-		mov es,bx
-pcmp_str_40:
+		inc esi
+		inc edi
 		inc edx
-		cmp edx,1 << 20		; avoid infinite loop
-		jb pcmp_str_20
+		jnz pcmp_str_20
 pcmp_str_50:
-		pop fs
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Compare 2 objects.
+;
+
+		bits 32
 
 pcmp_args:
 		; integer
 		mov dx,t_int + (t_int << 8)
-		push bx
+		push ebx
 		call get_2args
-		pop bx
+		pop ebx
 		jnc pcmp_args_90
 
 		; strings
@@ -6082,26 +5950,36 @@ pcmp_args:
 
 pcmp_args_60:
 		call pcmp_str
-
 		jmp pcmp_args_90
 pcmp_args_80:
-		pop ax			; skip last return
+		pop eax			; skip last return
 pcmp_args_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Return 'true'
+;
+
+		bits 32
+
 pcmp_true:
-		mov dl,t_bool
 		mov eax,1
-		dec word [pstack_ptr]
-		xor cx,cx
-		call set_pstack_tos
-		ret
+		jmp pcmp_false_10
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Return 'false'
+;
+
+		bits 32
 
 pcmp_false:
+		xor eax,eax
+pcmp_false_10:
 		mov dl,t_bool
-		mov eax,0
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 		ret
 
@@ -6127,6 +6005,9 @@ pcmp_false:
 ;   a [ 1 2 ] eq	% false (not the same array)
 ;   a b eq		% true
 ;
+
+		bits 32
+
 prim_eq:
 		mov bl,1
 		call pcmp_args
@@ -6156,6 +6037,9 @@ prim_eq:
 ;   a [ 1 2 ] ne        % true (not the same array)
 ;   a b ne              % false
 ;
+
+		bits 32
+
 prim_ne:
 		mov bl,1
 		call pcmp_args
@@ -6183,6 +6067,9 @@ prim_ne:
 ;   /b a + 2 def
 ;   b a gt		% true
 ;
+
+		bits 32
+
 prim_gt:
 		mov bl,0
 		call pcmp_args
@@ -6210,6 +6097,9 @@ prim_gt:
 ;   /b a + 2 def
 ;   b a ge		% true
 ;
+
+		bits 32
+
 prim_ge:
 		mov bl,0
 		call pcmp_args
@@ -6237,6 +6127,9 @@ prim_ge:
 ;   /b a + 2 def
 ;   b a lt		% false
 ;
+
+		bits 32
+
 prim_lt:
 		mov bl,0
 		call pcmp_args
@@ -6264,6 +6157,9 @@ prim_lt:
 ;   /b a + 2 def
 ;   b a le		% false
 ;
+
+		bits 32
+
 prim_le:
 		mov bl,0
 		call pcmp_args
@@ -6282,8 +6178,11 @@ prim_le:
 ;   8
 ;   /a exch def		% a = 8
 ;
+
+		bits 32
+
 prim_exch:
-		mov cx,2
+		mov ecx,2
 		call rot_pstack_up
 		mov bp,pserr_pstack_underflow
 		ret
@@ -6300,8 +6199,11 @@ prim_exch:
 ;   8
 ;   a 1 rot put		% a[1] = 8
 ;
+
+		bits 32
+
 prim_rot:
-		mov cx,3
+		mov ecx,3
 		call rot_pstack_up
 		mov bp,pserr_pstack_underflow
 		ret
@@ -6322,42 +6224,44 @@ prim_rot:
 ;   /rot { 3 -1 roll } def
 ;  1 2 3 4 5 5 2 roll		% leaves: 4 5 1 2 3
 ;
+
+		bits 32
+
 prim_roll:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_roll_90
 		or ecx,ecx
 		jz prim_roll_90
-		movzx edx,word [pstack_ptr]
+		mov edx,[pstack.ptr]
 		sub edx,2
 		cmp edx,ecx
 		mov bp,pserr_pstack_underflow
 		jc prim_roll_90
 		cdq
 		idiv ecx
-		sub word [pstack_ptr],byte 2
-		; ecx is max. 14 bit
-		or dx,dx
+		sub dword [pstack.ptr],2
+		or edx,edx
 		jz prim_roll_90
 		js prim_roll_50
 prim_roll_40:
-		push dx
-		push cx
+		push edx
+		push ecx
 		call rot_pstack_down
-		pop cx
-		pop dx
-		dec dx
+		pop ecx
+		pop edx
+		dec edx
 		jnz prim_roll_40
 		jmp prim_roll_90
 prim_roll_50:
-		neg dx
+		neg edx
 prim_roll_60:
-		push dx
-		push cx
+		push edx
+		push ecx
 		call rot_pstack_up
-		pop cx
-		pop dx
-		dec dx
+		pop ecx
+		pop edx
+		dec edx
 		jnz prim_roll_60
 		clc
 prim_roll_90:
@@ -6372,6 +6276,9 @@ prim_roll_90:
 ;
 ; Turn on @trace mode and show debug info in upper left screen corner.
 ;
+
+		bits 32
+
 prim_dtrace:
 		mov byte [single_step],1
 		mov byte [show_debug_info],1
@@ -6389,6 +6296,9 @@ prim_dtrace:
 ; Tab sets a temporary breakpoint after the current instruction and
 ; continues until it reaches it. Leave this mode by pressing Esc.
 ;
+
+		bits 32
+
 prim_trace:
 		mov byte [single_step],1
 		mov byte [show_debug_info],0
@@ -6409,19 +6319,22 @@ prim_trace:
 ;     pop
 ;   } def
 ; 
+
+		bits 32
+
 prim_return:
-		xor cx,cx
+		xor ecx,ecx
 prim_return_10:
-		push cx
+		push ecx
 		call get_rstack_tos
-		pop cx
+		pop ecx
 		mov bp,pserr_rstack_underflow
 		jc prim_return_90
-		inc cx
+		inc ecx
 		cmp dl,t_code
 		jnz prim_return_10		; skip if, loop, repeat, for, forall
 
-		sub [rstack_ptr],cx
+		sub [rstack.ptr],ecx
 		mov [pscode_next_instr],eax
 prim_return_90:
 		ret
@@ -6437,15 +6350,18 @@ prim_return_90:
 ;
 ;  0 1 100 { 56 eq { exit } if } for	% leave if counter == 56
 ;
+
+		bits 32
+
 prim_exit:
-		xor cx,cx
+		xor ecx,ecx
 prim_exit_10:
-		push cx
+		push ecx
 		call get_rstack_tos
-		pop cx
+		pop ecx
 		mov bp,pserr_rstack_underflow
 		jc prim_exit_90
-		inc cx
+		inc ecx
 		cmp dl,t_loop			; loop
 		jz prim_exit_60
 		cmp dl,t_repeat			; repeat
@@ -6455,14 +6371,14 @@ prim_exit_10:
 		cmp dl,t_forall			; forall
 		jnz prim_exit_10
 prim_exit_30:
-		inc cx
-		inc cx
+		inc ecx
+		inc ecx
 prim_exit_40:
-		inc cx
+		inc ecx
 prim_exit_60:
-		push cx
+		push ecx
 		call get_rstack_tos
-		pop cx
+		pop ecx
 		cmp dl,t_code
 		jz prim_exit_80
 		cmp dl,t_exit
@@ -6471,8 +6387,8 @@ prim_exit_60:
 		jnz prim_exit_90
 
 prim_exit_80:
-		inc cx
-		sub [rstack_ptr],cx
+		inc ecx
+		sub [rstack.ptr],ecx
 		mov [pscode_next_instr],eax
 prim_exit_90:
 		ret
@@ -6487,30 +6403,33 @@ prim_exit_90:
 ;
 ;     /x 0 def { /x x 1 add def x 56 eq { exit } if } loop	% loop until x == 56
 ;
+
+		bits 32
+
 prim_loop:
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		cmp dl,t_code
 		mov bp,pserr_wrong_arg_types
 		stc
 		jnz prim_loop_90
 
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 
 		; branch
 		xchg eax,[pscode_next_instr]
 
-		mov cx,[rstack_size]
-		sub cx,[rstack_ptr]
-		cmp cx,3
+		mov ecx,[rstack.size]
+		sub ecx,[rstack.ptr]
+		cmp ecx,3
 		mov bp,pserr_rstack_overflow
 		jb prim_loop_90
-		add word [rstack_ptr],byte 2
+		add dword [rstack.ptr],2
 
 		mov dl,t_exit
-		mov cx,1
+		mov ecx,1
 		call set_rstack_tos
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_loop			; mark as 'loop' block
 		mov eax,[pscode_next_instr]
 		call set_rstack_tos
@@ -6529,12 +6448,15 @@ prim_loop_90:
 ; example
 ;   3 { "X" show } repeat	% print "XXX"
 ;
+
+		bits 32
+
 prim_repeat:
 		mov dx,t_code + (t_int << 8)
 		call get_2args
 		jc prim_repeat_90
 
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 
 		or ecx,ecx
 		jz prim_repeat_90
@@ -6546,23 +6468,23 @@ prim_repeat:
 		; branch
 		xchg eax,[pscode_next_instr]
 
-		mov dx,[rstack_size]
-		sub dx,[rstack_ptr]
-		cmp dx,4
+		mov edx,[rstack.size]
+		sub edx,[rstack.ptr]
+		cmp edx,4
 		mov bp,pserr_rstack_overflow
 		jb prim_repeat_90
-		add word [rstack_ptr],byte 3
+		add dword [rstack.ptr],3
 
 		push eax
 		xchg eax,ecx
 		mov dl,t_int
-		mov  cx,1
+		mov ecx,1
 		call set_rstack_tos
 		pop eax
-		mov cx,2
+		mov ecx,2
 		mov dl,t_exit
 		call set_rstack_tos
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_repeat			; mark as 'repeat' block
 		mov eax,[pscode_next_instr]
 		call set_rstack_tos
@@ -6585,22 +6507,25 @@ prim_repeat_90:
 ; example
 ;  0 1 4 { } for 	% leave 0 1 2 3 4 on the stack
 ;
+
+		bits 32
+
 prim_for:
 		mov bp,pserr_pstack_underflow
-		cmp  word [pstack_ptr],byte 4
+		cmp dword [pstack.ptr],4
 		jc prim_for_90
-		mov cx,3
+		mov ecx,3
 		call get_pstack_tos
 		cmp dl,t_int
 		stc
 		mov bp,pserr_wrong_arg_types
 		jnz prim_for_90
-		mov cx,2
-		push bp
+		mov ecx,2
+		push ebp
 		push eax
 		call get_pstack_tos
 		pop edi
-		pop bp
+		pop ebp
 		cmp dl,t_int
 		stc
 		jnz prim_for_90
@@ -6614,42 +6539,42 @@ prim_for:
 		jc prim_for_90
 
 		; don't remove start value!
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 
 		; branch
 		xchg eax,[pscode_next_instr]
 
-		mov dx,[rstack_size]
-		sub dx,[rstack_ptr]
-		cmp dx,6
+		mov edx,[rstack.size]
+		sub edx,[rstack.ptr]
+		cmp edx,6
 		mov bp,pserr_rstack_overflow
 		jb prim_for_90
-		add word [rstack_ptr],byte 5
+		add dword [rstack.ptr],5
 
 		push ecx
 		push esi
 		push edi
 
 		mov dl,t_exit
-		mov cx,4
+		mov ecx,4
 		call set_rstack_tos
 
 		pop eax
 		mov dl,t_int
-		mov cx,3
+		mov ecx,3
 		call set_rstack_tos
 
 		pop eax
 		mov dl,t_int
-		mov cx,2
+		mov ecx,2
 		call set_rstack_tos
 
 		pop eax
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_rstack_tos
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_for			; mark as 'for' block
 		mov eax,[pscode_next_instr]
 		call set_rstack_tos
@@ -6673,6 +6598,9 @@ prim_for_90:
 ; example
 ;  [ 1 2 3 ] { } forall		% leave 1 2 3 on the stack
 ;
+
+		bits 32
+
 prim_forall:
 		mov dx,t_code + (t_array << 8)
 		call get_2args
@@ -6690,7 +6618,7 @@ prim_forall:
 
 		; nothing to do
 prim_forall_20:
-		sub word [pstack_ptr],2
+		sub dword [pstack.ptr],2
 		clc
 		jmp prim_forall_90
 
@@ -6711,50 +6639,50 @@ prim_forall_30:
 		or eax,eax			; length == 0
 		jz prim_forall_20
 
-		sub word [pstack_ptr],2
+		sub dword [pstack.ptr],2
 
 		; branch
 		xchg ebx,[pscode_next_instr]
 
-		mov si,[rstack_size]
-		sub si,[rstack_ptr]
-		cmp si,6
+		mov esi,[rstack.size]
+		sub esi,[rstack.ptr]
+		cmp esi,6
 		mov bp,pserr_rstack_overflow
 		jb prim_forall_90
-		add word [rstack_ptr],5
+		add dword [rstack.ptr],5
 
 		push ecx
-		push dx
+		push edx
 		push eax
 
 		mov dl,t_exit
 		xchg eax,ebx
-		mov cx,4
+		mov ecx,4
 		call set_rstack_tos		; code
 
 		pop eax
 		mov dl,t_int
-		mov cx,2
+		mov ecx,2
 		call set_rstack_tos		; length
 
-		pop dx
+		pop edx
 		pop eax
 		push eax
-		push dx
-		mov cx,3
+		push edx
+		mov ecx,3
 		call set_rstack_tos		; string/array
 
 		xor eax,eax
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_rstack_tos		; count
 
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_forall			; mark as 'forall' block
 		mov eax,[pscode_next_instr]
 		call set_rstack_tos
 
-		pop dx
+		pop edx
 		pop ecx
 		xchg dl,dh
 		xor eax,eax
@@ -6763,7 +6691,6 @@ prim_forall_30:
 		jc prim_forall_90
 
 		jmp pr_getobj
-
 prim_forall_90:
 		ret
 
@@ -6779,13 +6706,16 @@ prim_forall_90:
 ; example
 ;   "abc" gettype	% 4 (= string)
 ;
+
+		bits 32
+
 prim_gettype:
 		mov dl,t_none
 		call get_1arg
 		jc prim_gettype_90
 		movzx eax,dl
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_gettype_90:
 		ret
@@ -6804,6 +6734,9 @@ prim_gettype_90:
 ;   /string { 1 add malloc 4 settype } def	% 4 = string type
 ;   10 string					% new empty string of length 10
 ;
+
+		bits 32
+
 prim_settype:
 		mov dx,t_int + (t_none << 8)
 		call get_2args
@@ -6811,8 +6744,8 @@ prim_settype:
 		mov dl,al
 		and al,15
 		xchg eax,ecx
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		call set_pstack_tos
 prim_settype_90:
 		ret
@@ -6831,21 +6764,24 @@ prim_settype_90:
 ; blue setcolor
 ; 0 0 moveto screen.size fillrect	% draw blue screen
 ;
+
+		bits 32
+
 prim_screensize:
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_screensize_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,word [screen_width]
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		movzx eax,word [screen_height]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_screensize_90:
 		ret
@@ -6863,21 +6799,24 @@ prim_screensize_90:
 ; @screen.size. That area is available e.g. for hidden drawing. Some kind of
 ; scrolling is not implemented, however.
 ;
+
+		bits 32
+
 prim_vscreensize:
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
-		jb prim_screensize_90
-		mov [pstack_ptr],ax
+		jb prim_vscreensize_90
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,word [screen_width]
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		movzx eax,word [screen_vheight]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_vscreensize_90:
 		ret
@@ -6891,14 +6830,17 @@ prim_vscreensize_90:
 ;
 ; int1, int2: width and height
 ;
+
+		bits 32
+
 prim_monitorsize:
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_monitorsize_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 
 		cmp word [ddc_xtimings],0
 		jnz prim_monitorsize_50
@@ -6909,11 +6851,11 @@ prim_monitorsize_50:
 
 		mov dl,t_int
 		movzx eax,word [ddc_xtimings]
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		movzx eax,word [ddc_xtimings + 2]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_monitorsize_90:
 		ret
@@ -6925,7 +6867,7 @@ prim_monitorsize_90:
 ;
 ; ( -- int1 int2 )
 ;
-; int1, int2: image width and heigth. The image is specified with @setimage.
+; int1, int2: image width and height. The image is specified with @setimage.
 ; 
 ; example
 ;
@@ -6933,21 +6875,24 @@ prim_monitorsize_90:
 ;  exch 4 -1 roll sub 2 div 3 1 roll exch sub 2 div	% center image
 ;  moveto 0 0 image.size image				% draw it
 ;
+
+		bits 32
+
 prim_imagesize:
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_imagesize_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,word [image_width]
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		movzx eax,word [image_height]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_imagesize_90:
 		ret
@@ -6966,6 +6911,9 @@ prim_imagesize_90:
 ; entries. If you want to define your own colors, use @image.colors to get
 ; the first free palette entry. For 16/32-bit modes, 0 is returned.
 ;
+
+		bits 32
+
 prim_imagecolors:
 		xor eax,eax
 		cmp byte [image_type],1
@@ -6988,6 +6936,9 @@ prim_imagecolors_90:
 ;  0xff00 setcolor	% or green...
 ;  0xff setcolor	% or blue
 ;
+
+		bits 32
+
 prim_setcolor:
 		call pr_setint
 		mov [gfx_color_rgb],eax
@@ -7008,11 +6959,13 @@ prim_setcolor:
 ; example
 ;   currentcolor not setcolor	% inverse color
 ;
+
+		bits 32
+
 prim_currentcolor:
 		mov eax,[gfx_color0]
 		call decode_color
 		jmp pr_getint
-
 
 
 ;; settextmodecolor - set color to be used in text mode
@@ -7025,6 +6978,9 @@ prim_currentcolor:
 ;
 ; Note: You only need this in case you're running in text mode (practically never).
 ;
+
+		bits 32
+
 prim_settextmodecolor:
 		call pr_setint
 		mov [textmode_color],al
@@ -7042,11 +6998,14 @@ prim_settextmodecolor:
 ; example
 ;   200 100 moveto "Hello" show		% print "Hello" at (200, 100)
 ;
+
+		bits 32
+
 prim_moveto:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_moveto_90
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 		mov [gfx_cur_x],cx
 		mov [gfx_cur_y],ax
 prim_moveto_90:
@@ -7066,11 +7025,14 @@ prim_moveto_90:
 ;   "Hello" show
 ;   30 0 rmoveto "world!"	% "Hello    world!" (approx.)
 ;
+
+		bits 32
+
 prim_rmoveto:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_rmoveto_90
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 		add [gfx_cur_x],cx
 		add [gfx_cur_y],ax
 		clc
@@ -7086,21 +7048,24 @@ prim_rmoveto_90:
 ;
 ; int1, int2: x, y (upper left: 0, 0)
 ;
+
+		bits 32
+
 prim_currentpoint:
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_currentpoint_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,word [gfx_cur_x]
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		movzx eax,word [gfx_cur_y]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_currentpoint_90:
 		ret
@@ -7117,6 +7082,9 @@ prim_currentpoint_90:
 ; example
 ;   0 0 moveto screen.size lineto	% draw diagonal
 ;
+
+		bits 32
+
 prim_lineto:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -7134,7 +7102,7 @@ prim_lineto:
 		pop word [gfx_cur_y]
 		pop word [gfx_cur_x]
 
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_lineto_90:
 		ret
 
@@ -7152,10 +7120,20 @@ prim_lineto_90:
 ;   blue setcolor
 ;   0 0 moveto putpixel		% blue dot at upper left corner
 ;
+
+		bits 32
+
 prim_putpixel:
+		push fs
+		push gs
+
 		call goto_xy
 		call screen_segs
 		call [setpixel_t]
+
+		pop gs
+		pop fs
+
 		clc
 		ret
 
@@ -7172,13 +7150,21 @@ prim_putpixel:
 ; example
 ;   getpixel not setcolor putpixel	% invert pixel color
 ;
+
+		bits 32
+
 prim_getpixel:
+		push fs
+		push gs
+
 		call goto_xy
-		call screen_seg_r
-		mov esi,edi
-		xor eax,eax
+		call screen_segs
 		call [getpixel]
 		call decode_color
+
+		pop gs
+		pop fs
+
 		jmp pr_getint
 
 
@@ -7199,6 +7185,9 @@ prim_getpixel:
 ;  currentfont pwmode setfont		% now in password mode
 ;  "abc" show				% print "***"
 ;
+
+		bits 32
+
 prim_setfont:
 		call pr_setptr_or_none
 		call font_init
@@ -7220,12 +7209,13 @@ prim_setfont:
 ;   setfont				% back to normal font
 ;
 
-; FIXME: [font_properties] are lost
+; FIXME: [font.properties] are lost
 ;
+
+		bits 32
+
 prim_currentfont:
-		push dword [font]
-		call so2lin
-		pop eax
+		mov eax,[font]
 		jmp pr_getptr_or_none
 
 
@@ -7243,8 +7233,11 @@ prim_currentfont:
 ;   moveto 0 fontheight rmoveto
 ;   "world!"				% print "world!" below "Hello"
 ;
+
+		bits 32
+
 prim_fontheight:
-		movzx eax,word [font_height]
+		movzx eax,word [font.height]
 		jmp pr_getint
 
 
@@ -7261,6 +7254,9 @@ prim_fontheight:
 ; example
 ;   "foo.jpg" findfile setimage		% load and use "foo.jpg"
 ;
+
+		bits 32
+
 prim_setimage:
 		call pr_setptr_or_none
 		call image_init
@@ -7273,6 +7269,9 @@ prim_setimage:
 ;
 ; ( -- ptr1 )
 ;
+
+		bits 32
+
 prim_currentimage:
 		mov eax,[image]
 		jmp pr_getptr_or_none
@@ -7286,6 +7285,9 @@ prim_currentimage:
 ;
 ; int1: transparency for @fillrect operations; valid values are 0 - 256.
 ;
+
+		bits 32
+
 prim_settransparency:
 		call pr_setint
 		mov [transp],eax
@@ -7298,6 +7300,9 @@ prim_settransparency:
 ;
 ; ( -- int1 )
 ;
+
+		bits 32
+
 prim_currenttransparency:
 		mov eax,[transp]
 		jmp pr_getint
@@ -7313,20 +7318,21 @@ prim_currenttransparency:
 ;
 ; example
 ;   "Hello world!" show		% print "Hello world!"
+
+		bits 32
+
 prim_show:
 		mov dl,t_string
 		call get_1arg
 		jc prim_show_90
-		dec word [pstack_ptr]
-		lin2segofs eax,es,si
-		mov bx,[start_row]
-		or bx,bx
+		dec dword [pstack.ptr]
+		mov esi,eax
+		mov ebx,[start_row]
+		or ebx,ebx
 		jz prim_show_50
-		cmp bx,[cur_row2]
+		cmp ebx,[cur_row2]
 		jae prim_show_90
-		add bx,bx
-		mov si,[bx + row_start_ofs]
-		mov es,[row_start_seg]
+		mov esi,[row_text+4*ebx]
 prim_show_50:
 		call text_xy
 		clc
@@ -7347,30 +7353,33 @@ prim_show_90:
 ;   "Hi there!"
 ;   dup strsize pop neg 0 rmoveto show		% print "Hi there!" right aligned
 ;
+
+		bits 32
+
 prim_strsize:
 		mov dl,t_string
 		call get_1arg
 		jc prim_strsize_90
-		dec word [pstack_ptr]
-		lin2segofs eax,es,si
+		dec dword [pstack.ptr]
+
+		mov esi,eax
 		call str_size
 
-		mov ax,[pstack_ptr]
-		inc ax
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_strsize_90
-		mov [pstack_ptr],ax
-		push dx
-		movzx eax,cx
+		mov [pstack.ptr],eax
+		push edx
+		mov eax,ecx
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
-		pop ax
+		pop eax
 		mov dl,t_int
-		movzx eax,ax
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_strsize_90:
 		ret
@@ -7392,13 +7401,16 @@ prim_strsize_90:
 ;   a 1 100 put		% a[1] = 100
 ;   b a 10 memcpy	% copy a to b
 ;
+
+		bits 32
+
 prim_memcpy:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 3
+		cmp dword [pstack.ptr],3
 		jc prim_memcpy_90
 
 		mov bp,pserr_wrong_arg_types
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		cmp dl,t_ptr
 		stc
@@ -7412,20 +7424,16 @@ prim_memcpy:
 
 		; ecx: size
 		; eax: src
+
 		or ecx,ecx
 		jz prim_memcpy_80
 
-		pm_enter 32
-
 		mov esi,eax
 		mov edi,ebx
-
 		es rep movsb
 
-		pm_leave 32
-
 prim_memcpy_80:
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 prim_memcpy_90:
 		ret
 
@@ -7444,21 +7452,24 @@ prim_memcpy_90:
 ;   "xxx.jpg" findfile setimage		% load and activate "xxx.jpg"
 ;   0 0 image.size image		% draw whole image
 ;
+
+		bits 32
+
 prim_image:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 4
+		cmp dword [pstack.ptr],4
 		jc prim_image_90
-		mov cx,3
+		mov ecx,3
 		call get_pstack_tos
 		cmp dl,t_int
 		stc
 		mov bp,pserr_wrong_arg_types
 		jnz prim_image_90
 		mov [line_x0],eax
-		mov cx,2
-		push bp
+		mov ecx,2
+		push ebp
 		call get_pstack_tos
-		pop bp
+		pop ebp
 		cmp dl,t_int
 		stc
 		jnz prim_image_90
@@ -7467,7 +7478,7 @@ prim_image:
 		call get_2args
 		jc prim_image_90
 
-		sub word [pstack_ptr],byte 4
+		sub dword [pstack.ptr],4
 
 		mov edx,[line_x0]
 		add edx,ecx
@@ -7498,9 +7509,12 @@ prim_image_90:
 ;
 ; Activates current palette in 8-bit modes.
 ;
+
+		bits 32
+
 prim_loadpalette:
-		mov cx,100h
-		xor dx,dx
+		mov ecx,100h
+		xor edx,edx
 		call load_palette
 		clc
 		ret
@@ -7530,21 +7544,24 @@ prim_loadpalette:
 ;
 ;  img free				% free it
 ;
+
+		bits 32
+
 prim_unpackimage:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 4
+		cmp dword [pstack.ptr],4
 		jc prim_unpackimage_90
-		mov cx,3
+		mov ecx,3
 		call get_pstack_tos
 		cmp dl,t_int
 		stc
 		mov bp,pserr_wrong_arg_types
 		jnz prim_unpackimage_90
 		mov [line_x0],eax
-		mov cx,2
-		push bp
+		mov ecx,2
+		push ebp
 		call get_pstack_tos
-		pop bp
+		pop ebp
 		cmp dl,t_int
 		stc
 		jnz prim_unpackimage_90
@@ -7553,7 +7570,7 @@ prim_unpackimage:
 		call get_2args
 		jc prim_unpackimage_90
 
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 
 		mov edx,[line_x0]
 		add edx,ecx
@@ -7588,84 +7605,10 @@ prim_unpackimage_70:
 		mov dl,t_none
 		xor eax,eax
 prim_unpackimage_80:
-		xor cx,cx
+
+		xor ecx,ecx
 		call set_pstack_tos
 prim_unpackimage_90:
-		ret
-
-
-;; tint - tint palette
-;
-; group: tint
-;
-; ( int1 int2 int3 -- )
-;
-; int1: source
-; int2: destination
-; int3: palette entries
-; 
-; Tint int3 palette entries starting at int1 and store them starting at int2.
-;
-prim_tint:
-		mov bp,pserr_pstack_underflow
-		cmp  word [pstack_ptr],byte 3
-		jc prim_tint_90
-		mov bp,pserr_wrong_arg_types
-		mov cx,2
-		call get_pstack_tos
-		cmp dl,t_int
-		stc
-		jnz prim_tint_90
-		push ax
-		mov dx,t_int + (t_int << 8)
-		call get_2args
-		pop dx
-		jc prim_tint_90
-
-		sub word [pstack_ptr],byte 3
-
-		xchg ax,bx
-
-		push cx
-		push bx
-		call tint
-		pop dx
-		pop cx
-
-		call load_palette
-		clc
-prim_tint_90:
-		ret
-
-
-;; settintcolor - set tint color
-;
-; group: tint
-;
-; ( int1 int2 -- )
-;
-; int1: RGB value
-; int2: opaqueness (individually for each R, G, B component)
-;
-prim_settintcolor:
-		mov dx,t_int + (t_int << 8)
-		call get_2args
-		jc prim_settintcolor_90
-
-		sub word [pstack_ptr],byte 2
-
-		mov [gfx_cs_tint_b],al
-		mov [gfx_cs_tint_g],ah
-		shr eax,16
-		mov [gfx_cs_tint_r],al
-		mov [gfx_cs_b],cl
-		mov [gfx_cs_g],ch
-		shr ecx,16
-		mov [gfx_cs_r],cl
-
-		clc
-
-prim_settintcolor_90:
 		ret
 
 
@@ -7682,27 +7625,30 @@ prim_settintcolor_90:
 ;   /red 11 0xff0000 def	% color 11 = red
 ;   /yellow 12 0xffff00 def	% color 12 = yellow
 ;
+
+		bits 32
+
 prim_setpalette:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_setpalette_90
 
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 
 		cmp ecx,100h
 		jae prim_setpalette_90
 
-		push cx
-		les di,[gfx_pal]
-		add di,cx
-		add di,cx
-		add di,cx
-		mov [es:di+2],al
-		mov [es:di+1],ah
+		mov edx,ecx
+
+		lea edi,[ecx+2*ecx]
+		add edi,[gfx_pal]
+		
+		mov [es:edi+2],al
+		mov [es:edi+1],ah
 		shr eax,16
-		mov [es:di],al
-		pop dx
-		mov cx,1
+		mov [es:edi],al
+
+		mov ecx,1
 		call load_palette
 
 		clc
@@ -7723,6 +7669,9 @@ prim_setpalette_90:
 ; example
 ;   11 dup getpalette not setpalette	% invert color 11
 ;
+
+		bits 32
+
 prim_getpalette:
 		mov dl,t_int
 		call get_1arg
@@ -7733,17 +7682,16 @@ prim_getpalette:
 		cmp ecx,100h
 		jae prim_getpalette_50
 
-		les di,[gfx_pal]
-		add di,cx
-		add di,cx
-		add di,cx
-		mov al,[es:di]
+		lea ecx,[ecx+2*ecx]
+		add ecx,[gfx_pal]
+
+		mov al,[es:ecx]
 		shl eax,16
-		mov ah,[es:di+1]
-		mov al,[es:di+2]
+		mov ah,[es:ecx+1]
+		mov al,[es:ecx+2]
 prim_getpalette_50:
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_getpalette_90:
 		ret
@@ -7759,6 +7707,9 @@ prim_getpalette_90:
 ; Something like an alpha channel, actually. Works only with PCX images.
 ; Not at all related to @settransparency.
 ;
+
+		bits 32
+
 prim_settransparentcolor:
 		call pr_setint
 		mov [transparent_color],eax
@@ -7779,6 +7730,9 @@ prim_settransparentcolor:
 ; example
 ;   0 0 moveto screen.size savescreen	% save entire screen
 ;
+
+		bits 32
+
 prim_savescreen:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
@@ -7791,9 +7745,8 @@ prim_savescreen:
 		call save_bg
 		pop eax
 prim_savescreen_50:
-		call lin_seg_off
-		dec word [pstack_ptr]
-		xor cx,cx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_ptr
 		or eax,eax
 		jnz prim_savescreen_70
@@ -7804,6 +7757,7 @@ prim_savescreen_90:
 		ret
 
 
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ; Allocate drawing buffer.
 ;
 ; eax		height
@@ -7811,30 +7765,30 @@ prim_savescreen_90:
 ;
 ; return:
 ;  eax		buffer (0: failed)
+;  dx, cx       width, height
 ;
+
+		bits 32
+
 alloc_fb:
-		push ax
-		push cx
+		push eax
+		push ecx
 		mul ecx
 		mul dword [pixel_bytes]
-		pop dx
-		pop cx
+		pop edx
+		pop ecx
 		mov bp,pserr_invalid_image_size
 		add eax,4
 		jc alloc_fb_80
-		push cx
-		push dx
-		pm_enter 32
-		call xmalloc
-		pm_leave 32
-		pop dx
-		pop cx
+		push ecx
+		push edx
+		call calloc
+		pop edx
+		pop ecx
 		or eax,eax
 		jz alloc_fb_90
-		lin2seg eax,es,edi
-		mov [es:edi],dx
-		mov [es:edi+2],cx
-		call lin_seg_off
+		mov [es:eax],dx
+		mov [es:eax+2],cx
 		jmp alloc_fb_90
 alloc_fb_80:
 		xor eax,eax
@@ -7858,6 +7812,9 @@ alloc_fb_90:
 ;   300 200 moveto dup restorescreen	% and copy it to 300x200
 ;   free				% free memory
 ;
+
+		bits 32
+
 prim_restorescreen:
 		mov dl,t_ptr
 		call get_1arg
@@ -7865,23 +7822,19 @@ prim_restorescreen:
 		cmp dl,t_none
 		stc
 		jnz prim_restorescreen_90
-
 		jmp prim_restorescreen_80
 
 prim_restorescreen_20:
 
-		lin2seg eax,es,edi
-		mov dx,[es:edi]
-		mov cx,[es:edi+2]
-		call lin_seg_off
-
+		mov dx,[es:eax]
+		mov cx,[es:eax+2]
 		lea edi,[eax+4]
 		mov bx,dx
 		imul bx,[pixel_bytes]
 		call restore_bg
 
 prim_restorescreen_80:
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		clc
 prim_restorescreen_90:
 		ret
@@ -7902,6 +7855,9 @@ prim_restorescreen_90:
 ;   /foo 256 malloc def	% allocate 256 bytes...
 ;   foo free		% and free it
 ;
+
+		bits 32
+
 prim_malloc:
 		mov dl,t_int
 		call get_1arg
@@ -7911,7 +7867,7 @@ prim_malloc:
 		stc
 		mov bp,pserr_no_memory
 		jz prim_malloc_90
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_ptr
 		call set_pstack_tos
 prim_malloc_90:
@@ -7939,6 +7895,9 @@ prim_malloc_90:
 ;
 ; "Some Text" free	% free nothing
 ;
+
+		bits 32
+
 prim_free:
 		mov dl,t_string
 		call get_1arg
@@ -7951,11 +7910,9 @@ prim_free:
 		stc
 		jnz prim_free_90
 prim_free_10:
-		pm_enter 32
 		call free
-		pm_leave 32
 prim_free_50:
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		clc
 prim_free_90:
 		ret
@@ -7979,39 +7936,48 @@ prim_free_90:
 ; example
 ;   0 memsize pop 1024 lt { "less than 1kB left" show } if
 ;
+
+		bits 32
+
 prim_memsize:
 		mov dl,t_int
 		call get_1arg
 		jc prim_memsize_90
-		mov cx,[pstack_ptr]
-		inc cx
-		cmp [pstack_size],cx
+		mov ecx,[pstack.ptr]
+		inc ecx
+		cmp [pstack.size],ecx
 		mov bp,pserr_pstack_overflow
 		jb prim_memsize_90
-		mov [pstack_ptr],cx
-
-		pm_enter 32
+		mov [pstack.ptr],ecx
 
 		call memsize
-
-		pm_leave 32
 
 		mov dl,t_int
 		xchg eax,ebp
 		push edi
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		pop eax
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_memsize_90:
 		ret
 
+
+;; dumpmem - dump memory usage to console
+;
+; group: mem
+;
+; ( -- )
+;
+; Note: useful only for debugging.
+;
+
+		bits 32
+
 prim_dumpmem:
-%if debug
 		call dump_malloc
-%endif
 		ret
 
 
@@ -8028,15 +7994,18 @@ prim_dumpmem:
 ;   blue setcolor
 ;   300 200 fillrect		% 300x200 blue rectangle
 ;
+
+		bits 32
+
 prim_fillrect:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_fillrect_90
-		mov dx,cx
-		mov cx,ax
+		mov edx,ecx
+		mov ecx,eax
 		mov eax,[gfx_color]
 		call fill_rect
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_fillrect_90:
 		ret
 
@@ -8065,12 +8034,15 @@ prim_fillrect_90:
 ; "bar" "foo" 3 "&#37;d &#37;s &#37;s" buf sprintf
 ; buf show				% print "3 foo bar"
 ; 
+
+		bits 32
+
 prim_snprintf:
 		mov bp,pserr_pstack_underflow
-		cmp  word [pstack_ptr],byte 3
+		cmp dword [pstack.ptr],3
 		jc prim_snprintf_90
 		mov bp,pserr_wrong_arg_types
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		cmp dl,t_string
 		stc
@@ -8078,31 +8050,27 @@ prim_snprintf:
 		push eax
 		mov dx,t_string + (t_int << 8)
 		call get_2args
-		pop ebx
+		pop esi
 		jc prim_snprintf_90
 
-		sub word [pstack_ptr],byte 3
+		sub dword [pstack.ptr],3
 
 		mov [pf_gfx_buf],eax
 		mov [pf_gfx_max],ecx
-		and dword [pf_gfx_cnt],byte 0
-		and word [pf_gfx_err],byte 0
+		and dword [pf_gfx_cnt],0
+		and word [pf_gfx_err],0
 
 		or ecx,ecx
 		jz prim_snprintf_40
 		; clear buffer in case we have to print _nothing_
-		lin2segofs eax,es,di
-		mov byte [es:di],0
+		mov byte [es:eax],0
 prim_snprintf_40:
-
-		lin2segofs ebx,es,si
-
 		mov byte [pf_gfx],1
 		call printf
 		mov byte [pf_gfx],0
 
 		mov bp,[pf_gfx_err]
-		cmp bp,byte 0
+		cmp bp,0
 prim_snprintf_90:
 		ret
 
@@ -8125,32 +8093,37 @@ prim_snprintf_90:
 ;   /ed [ 50 100 bg buf 100 0 0 0 ] def
 ;   ed "foo" edit.init
 ;
+
+		bits 32
+
 prim_editinit:
 		mov dx,t_string + (t_array << 8)
 		call get_2args
 		jc prim_editinit_90
 
-		lin2segofs ecx,es,si
-		push es
-		push si
+		mov esi,ecx
+
+		push esi
 		push eax
 		call edit_get_params
 		pop eax
-		pop ecx
+		pop esi
+
 		mov bp,pserr_invalid_data
 		jc prim_editinit_90
 
 		push dword [gfx_cur]
-		push ecx
-		lin2segofs eax,es,si
+
+		push esi
+		mov esi,eax
 		call edit_init
-		pop si
-		pop es
+		pop esi
+
 		pop dword [gfx_cur]
 
 		call edit_put_params
 
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_editinit_90:
 		ret
 
@@ -8168,12 +8141,15 @@ prim_editinit_90:
 ; example
 ;   ed edit.done		% delete input field
 ;
+
+		bits 32
+
 prim_editdone:
-		mov dx,t_array
+		mov dl,t_array
 		call get_1arg
 		jc prim_editdone_90
 
-		lin2segofs eax,es,si
+		mov esi,eax
 		call edit_get_params
 		mov bp,pserr_invalid_data
 		jc prim_editdone_90
@@ -8191,7 +8167,7 @@ prim_editdone:
 		imul bx,[pixel_bytes]
 		call restore_bg
 
-		sub word [pstack_ptr],byte 1
+		sub word [pstack.ptr],byte 1
 prim_editdone_90:
 		ret
 
@@ -8204,12 +8180,15 @@ prim_editdone_90:
 ;
 ; array1: see @edit.init
 ;
+
+		bits 32
+
 prim_editshowcursor:
-		mov dx,t_array
+		mov dl,t_array
 		call get_1arg
 		jc prim_editshowcursor_90
 
-		lin2segofs eax,es,si
+		mov esi,eax
 		call edit_get_params
 		mov bp,pserr_invalid_data
 		jc prim_editshowcursor_90
@@ -8218,7 +8197,7 @@ prim_editshowcursor:
 		call edit_show_cursor
 		pop dword [gfx_cur]
 
-		sub word [pstack_ptr],byte 1
+		sub dword [pstack.ptr],1
 prim_editshowcursor_90:
 		ret
 
@@ -8231,12 +8210,15 @@ prim_editshowcursor_90:
 ;
 ; array1: see @edit.init
 ;
+
+		bits 32
+
 prim_edithidecursor:
-		mov dx,t_array
+		mov dl,t_array
 		call get_1arg
 		jc prim_edithidecursor_90
 
-		lin2segofs eax,es,si
+		mov esi,eax
 		call edit_get_params
 		mov bp,pserr_invalid_data
 		jc prim_edithidecursor_90
@@ -8245,7 +8227,7 @@ prim_edithidecursor:
 		call edit_hide_cursor
 		pop dword [gfx_cur]
 
-		sub word [pstack_ptr],byte 1
+		sub dword [pstack.ptr],1
 prim_edithidecursor_90:
 		ret
 
@@ -8264,35 +8246,44 @@ prim_edithidecursor_90:
 ;   ed 'a' edit.input
 ;   ed keyLeft edit.input
 ;
+
+		bits 32
+
 prim_editinput:
 		mov dx,t_int + (t_array << 8)
 		call get_2args
 		jc prim_editinput_90
 
-		lin2segofs ecx,es,si
-		push es
-		push si
+		mov esi,ecx
+
+		push esi
 		push eax
 		call edit_get_params
 		pop eax
-		pop ecx
+		pop esi
+
 		mov bp,pserr_invalid_data
 		jc prim_editinput_90
 
+		push esi
+
 		push dword [gfx_cur]
-		push ecx
+
 		push eax
 		call edit_hide_cursor
 		pop eax
+
 		call edit_input
+
 		call edit_show_cursor
-		pop si
-		pop es
+
 		pop dword [gfx_cur]
+
+		pop esi
 
 		call edit_put_params
 
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_editinput_90:
 		ret
 
@@ -8305,8 +8296,11 @@ prim_editinput_90:
 ;
 ; ptr1: boot loader config data (32 bytes)
 ;
+
+		bits 32
+
 prim_sysconfig:
-		segofs2lin word [boot_cs],word [boot_sysconfig],eax
+		mov eax,[boot.sysconfig]
 		jmp pr_getptr_or_none
 
 
@@ -8318,6 +8312,9 @@ prim_sysconfig:
 ;
 ; int1 = 1: 64-bit architecture
 ;
+
+		bits 32
+
 prim_64bit:
 		call chk_64bit
 		sbb eax,eax
@@ -8333,15 +8330,18 @@ prim_64bit:
 ;
 ; int2: byte from port int1
 ;
+
+		bits 32
+
 prim_inbyte:
 		mov dl,t_int
 		call get_1arg
 		jc prim_inbyte_90
-		xchg ax,dx
+		mov edx,eax
 		xor eax,eax
 		in al,dx
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_inbyte_90:
 		ret
@@ -8355,13 +8355,16 @@ prim_inbyte_90:
 ;
 ; Write byte int2 to port int1.
 ;
+
+		bits 32
+
 prim_outbyte:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_outbyte_90
-		mov dx,cx
+		mov edx,ecx
 		out dx,al
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 prim_outbyte_90:
 		ret
 
@@ -8374,23 +8377,16 @@ prim_outbyte_90:
 ;
 ; int1: byte at ptr1
 ;
+
+		bits 32
+
 prim_getbyte:
 		mov dl,t_ptr
 		call get_1arg
 		jc prim_getbyte_90
-		lin2seg eax,es,esi
-		xor eax,eax
-		cmp esi,0xfffc
-		jbe prim_getbyte_30
-		mov ax,es
-		or ax,ax
-		jz prim_getbyte_70
-prim_getbyte_30:
-		movzx eax,byte [es:esi]
-prim_getbyte_70:
-		call lin_seg_off
+		movzx eax,byte [es:eax]
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_getbyte_90:
 		ret
@@ -8404,13 +8400,15 @@ prim_getbyte_90:
 ;
 ; Write byte int1 at ptr1.
 ;
+
+		bits 32
+
 prim_putbyte:
 		mov dx,t_int + (t_ptr << 8)
 		call get_2args
 		jc prim_putbyte_90
-		lin2segofs ecx,es,bx
-		mov [es:bx],al
-		sub word [pstack_ptr],byte 2
+		mov [es:ecx],al
+		sub dword [pstack.ptr],2
 prim_putbyte_90:
 		ret
 
@@ -8423,23 +8421,16 @@ prim_putbyte_90:
 ;
 ; int1: dword at ptr1
 ;
+
+		bits 32
+
 prim_getdword:
 		mov dl,t_ptr
 		call get_1arg
 		jc prim_getdword_90
-		lin2seg eax,es,esi
-		xor eax,eax
-		cmp esi,0xfffc
-		jbe prim_getdword_30
-		mov ax,es
-		or ax,ax
-		jz prim_getdword_70
-prim_getdword_30:
-		mov eax,[es:esi]
-prim_getdword_70:
-		call lin_seg_off
+		mov eax,[es:eax]
 		mov dl,t_int
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_getdword_90:
 		ret
@@ -8453,13 +8444,15 @@ prim_getdword_90:
 ;
 ; Write dword int1 at ptr1.
 ;
+
+		bits 32
+
 prim_putdword:
 		mov dx,t_int + (t_ptr << 8)
 		call get_2args
 		jc prim_putdword_90
-		lin2segofs ecx,es,bx
-		mov [es:bx],eax
-		sub word [pstack_ptr],byte 2
+		mov [es:ecx],eax
+		sub dword [pstack.ptr],2
 prim_putdword_90:
 		ret
 
@@ -8482,6 +8475,9 @@ prim_putdword_90:
 ; example
 ;   "xxx.jpg" findfile length		% file size of "xxx.jpg"
 ;
+
+		bits 32
+
 prim_findfile:
 		mov dl,t_string
 		call get_1arg
@@ -8502,7 +8498,7 @@ prim_findfile_10:
 		jnz prim_findfile_20
 		mov dl,t_none
 prim_findfile_20:
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_findfile_90:
 		ret
@@ -8522,6 +8518,9 @@ prim_findfile_90:
 ; example
 ;   "xxx.jpg" filesize		% file size of "xxx.jpg"
 ;
+
+		bits 32
+
 prim_filesize:
 		mov dl,t_string
 		call get_1arg
@@ -8546,7 +8545,7 @@ prim_filesize_50:
 		inc eax
 		mov dl,t_none
 prim_filesize_70:
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_filesize_90:
 		ret
@@ -8563,6 +8562,9 @@ prim_filesize_90:
 ; example
 ;   getcwd show		% print working directory
 ;
+
+		bits 32
+
 prim_getcwd:
 		mov al,3
 		call gfx_cb			; cwd (lin)
@@ -8589,6 +8591,9 @@ prim_getcwd_90:
 ; example
 ;   "/foo/bar" chdir		% set working directory
 ;
+
+		bits 32
+
 prim_chdir:
 		mov dl,t_string
 		call get_1arg
@@ -8604,23 +8609,21 @@ prim_chdir:
 		cmp ecx,64
 		jae prim_chdir_60
 
-		push cx
+		push ecx
 
 		push eax
 		mov al,0
 		call gfx_cb			; get file name buffer address (edx)
-		call lin2so
-		pop si
-		pop fs
+		pop esi
 
-		pop cx
+		pop ecx
 
 		or al,al
 		jnz prim_chdir_60
 
-		lin2segofs edx,es,di
+		mov edi,edx
 
-		fs rep movsb
+		es rep movsb
 		mov al,0
 		stosb
 
@@ -8631,7 +8634,7 @@ prim_chdir:
 		mov bp,pserr_invalid_function
 		jnz prim_chdir_70
 
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		jmp prim_chdir_90
 
 prim_chdir_60:
@@ -8654,6 +8657,9 @@ prim_chdir_90:
 ; Note: internal function. Returns pointer to static buffer. Does not return
 ; on error. Returns .undef if function is not implemented.
 ;
+
+		bits 32
+
 prim__readsector:
 		mov dl,t_int
 		call get_1arg
@@ -8671,7 +8677,7 @@ prim__readsector_50:
 		mov eax,edx
 		mov dl,t_ptr
 prim__readsector_80:
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim__readsector_90:
 		ret
@@ -8689,6 +8695,9 @@ prim__readsector_90:
 ; Note: if video mode setting fails, the old mode is restored, but the
 ; screen contents is undefined.
 ;
+
+		bits 32
+
 prim_setmode:
 		mov dl,t_int
 		call get_1arg
@@ -8697,13 +8706,13 @@ prim_setmode:
 		stc
 		jnz prim_setmode_90
 		xor eax,eax
-		mov cx,ax
+		mov ecx,eax
 		jmp prim_setmode_80
 prim_setmode_30:
 		xchg [gfx_mode],ax
-		push ax
+		push eax
 		call set_mode
-		pop ax
+		pop eax
 		jnc prim_setmode_60
 		xchg [gfx_mode],ax
 		call set_mode
@@ -8718,7 +8727,7 @@ prim_setmode_60:
 		mov cx,[screen_vheight]
 		mov [clip_b],cx
 
-		xor cx,cx
+		xor ecx,ecx
 
 		mov [clip_l],cx
 		mov [clip_t],cx
@@ -8738,6 +8747,9 @@ prim_setmode_90:
 ;
 ; int1: current video mode number
 ;
+
+		bits 32
+
 prim_currentmode:
 		movzx eax,word [gfx_mode]
 		jmp pr_getint
@@ -8751,16 +8763,24 @@ prim_currentmode:
 ;
 ; int1: video mode list length (always >= 1)
 ;
+
+		bits 32
+
 prim_videomodes:
-		lfs si,[vbe_mode_list]
+		mov esi,[vbe_mode_list]
 		xor eax,eax
 
 prim_videomodes_20:
-		add si,2
-		inc ax
-		cmp word [fs:si-2],0xffff
+		add esi,2
+		inc eax
+		cmp eax,1000h		; don't overdo
+		jae prim_videomodes_30
+		cmp word [es:esi-2],0xffff
 		jnz prim_videomodes_20
-
+		jmp prim_videomodes_40
+prim_videomodes_30:
+		xor eax,eax
+prim_videomodes_40:
 		jmp pr_getint
 
 
@@ -8778,86 +8798,88 @@ prim_videomodes_20:
 ; example
 ;   2 videomodeinfo
 ;
+
+		bits 32
+
 prim_videomodeinfo:
 		mov dl,t_int
 		call get_1arg
 		jc prim_vmi_90
 
-		mov cx,[pstack_ptr]
-		add cx,3
-		cmp [pstack_size],cx
+		mov ecx,[pstack.ptr]
+		add ecx,3
+		cmp [pstack.size],ecx
 		mov bp,pserr_pstack_overflow
 		jb prim_vmi_90
-		mov [pstack_ptr],cx
+		mov [pstack.ptr],ecx
 
 		cmp eax,100h
 		jb prim_vmi_10
 		mov ax,0ffh
 prim_vmi_10:
-		add ax,ax
-		lfs si,[vbe_mode_list]
-		add si,ax
-		mov cx,[fs:si]
-		or cx,cx
+		add eax,eax
+		add eax,[vbe_mode_list]
+		movzx ecx,word [es:eax]
+		or ecx,ecx
 		jz prim_vmi_60
-		cmp cx,-1
+		cmp ecx,-1
 		jz prim_vmi_60
 
-		push es
+		mov eax,[vbe_buffer]
+		mov edi,eax
+		shr eax,4
+		mov [rm_seg.es],ax
+		and edi,0fh
 
-		les di,[vbe_buffer]
 		mov ax,4f01h
-		push di
-		push cx
+		push ecx
 		int 10h
-		pop cx
-		pop di
-
-		pop es
-		mov fs,[vbe_buffer+2]
+		pop ecx
 
 		cmp ax,4fh
 		jnz prim_vmi_60
 
-		test byte [fs:di],1		; mode supported?
+		mov edi,[vbe_buffer]
+
+		test byte [es:edi],1		; mode supported?
 		jz prim_vmi_60
 
-		movzx eax,cx
+		mov eax,ecx
 		and ax,~(1 << 14)
-		cmp dword [fs:di+28h],byte 0	; framebuffer start
+		cmp dword [es:edi+28h],0	; framebuffer start
 		jz prim_vmi_20
 		or ax,1 << 14
 prim_vmi_20:
 		mov dl,t_int
-		xor cx,cx
-		push di
+		xor ecx,ecx
+		push edi
 		call set_pstack_tos
-		pop di
+		pop edi
 
-		movzx eax,word [fs:di+12h]	; width
+		movzx eax,word [es:edi+12h]	; width
 		mov dl,t_int
-		mov cx,3
-		push di
+		mov ecx,3
+		push edi
 		call set_pstack_tos
-		pop di
+		pop edi
 
-		movzx eax,word [fs:di+14h]	; heigth
+		movzx eax,word [es:edi+14h]	; height
 		mov dl,t_int
-		mov cx,2
-		push di
+		mov ecx,2
+		push edi
 		call set_pstack_tos
-		pop di
+		pop edi
 
-		mov dl,[fs:di+1bh]		; color mode (aka memory model)
-		mov dh,[fs:di+19h]		; color depth
+		mov dl,[es:edi+1bh]		; color mode (aka memory model)
+		mov dh,[es:edi+19h]		; color depth
 
 		cmp dl,6			; direct color
 		jnz prim_vmi_30
 		cmp dh,32
 		jz prim_vmi_40
-		mov dh,[fs:di+1fh]		; red
-		add dh,[fs:di+21h]		; green
-		add dh,[fs:di+23h]		; blue
+		mov dh,[es:edi+1fh]		; red
+		add dh,[es:edi+21h]		; green
+		add dh,[es:edi+23h]		; blue
 		jmp prim_vmi_40
 prim_vmi_30:
 		cmp dl,4			; PL8
@@ -8867,33 +8889,31 @@ prim_vmi_40:
 		movzx eax,dh
 
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
-
 		jmp prim_vmi_90
 
 prim_vmi_60:
 		; no mode
 		xor eax,eax
 		mov dl,t_int
-		mov cx,3
+		mov ecx,3
 		call set_pstack_tos
 		xor eax,eax
 		mov dl,t_int
-		mov cx,2
+		mov ecx,2
 		call set_pstack_tos
 		xor eax,eax
 		mov dl,t_int
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		xor eax,eax
 		mov dl,t_none
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 
 prim_vmi_90:
 		ret
-
 
 
 ;; sysinfo - return system info
@@ -8912,6 +8932,9 @@ prim_vmi_90:
 ;   3 sysinfo		% gfx card product string
 ;   4 sysinfo		% gfx card revision string
 ;
+
+		bits 32
+
 prim_sysinfo:
 		mov dl,t_int
 		call get_1arg
@@ -8929,7 +8952,7 @@ prim_si_70:
 		mov dl,t_none
 		xor eax,eax
 prim_si_80:
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_si_90:
 		ret
@@ -8943,6 +8966,9 @@ prim_si_90:
 ;
 ; int1: pixel size in bits
 ;
+
+		bits 32
+
 prim_colorbits:
 		movzx eax,byte [color_bits]
 		jmp pr_getint
@@ -8959,6 +8985,9 @@ prim_colorbits:
 ;
 ; Note: does not work with all BIOSes. (With very few, actually.)
 ;
+
+		bits 32
+
 prim_eject:
 		mov dl,t_int
 		call get_1arg
@@ -8966,7 +8995,7 @@ prim_eject:
 		mov dl,al
 		mov ax,4600h
 		int 13h
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,t_int
 		movzx eax,ah
 		call set_pstack_tos
@@ -8982,20 +9011,23 @@ prim_eject_90:
 ;
 ; Note: uses APM, not ACPI.
 ;
+
+		bits 32
+
 prim_poweroff:
 		mov ax,5300h
-		xor bx,bx
+		xor ebx,ebx
 		int 15h
 		jc prim_poweroff_90
 		mov ax,5304h
-		xor bx,bx
+		xor ebx,ebx
 		int 15h
 		mov ax,5301h
-		xor bx,bx
+		xor ebx,ebx
 		int 15h
 		jc prim_poweroff_90
 		mov ax,530eh
-		xor bx,bx
+		xor ebx,ebx
 		mov cx,102h
 		int 15h
 		jc prim_poweroff_90
@@ -9014,12 +9046,14 @@ prim_poweroff_90:
 ;
 ; ( -- )
 ;
+
+		bits 32
+
 prim_reboot:
-		mov word [472h],1234h
-		push word 0ffffh
-		push word 0
-		retf
-		int 19h
+		mov word [es:472h],1234h
+		pm_leave
+		jmp 0ffffh:0
+		pm_enter
 		clc
 		ret
 
@@ -9038,6 +9072,9 @@ prim_reboot:
 ; example
 ;   "abcd" "c" strstr		% 3 (not 2)
 ;
+
+		bits 32
+
 prim_strstr:
 		mov dx,t_string + (t_string << 8)
 		call get_2args
@@ -9073,16 +9110,16 @@ prim_strstr_30:
 		inc ebx
 		jmp prim_strstr_20
 
-prim_strstr_40
+prim_strstr_40:
 		xor ebx,ebx
 		jmp prim_strstr_60
 prim_strstr_50:
 		inc ebx
 prim_strstr_60:
 		add esp,2*4
-		xchg eax,ebx
-		dec word [pstack_ptr]
-		xor cx,cx
+		mov eax,ebx
+		dec dword [pstack.ptr]
+		xor ecx,ecx
 		mov dl,t_int
 		call set_pstack_tos
 
@@ -9101,16 +9138,19 @@ prim_strstr_90:
 ;
 ; int1: volume (0 .. 100)
 ;
+
+		bits 32
+
 prim_soundgetvolume:
-		mov ax,[pstack_ptr]
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_sgv_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,byte [sound_vol]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_sgv_90:
 		ret
@@ -9124,22 +9164,25 @@ prim_sgv_90:
 ;
 ; int1: volume (0 .. 100)
 ;
+
+		bits 32
+
 prim_soundsetvolume:
 		mov dl,t_int
 		call get_1arg
 		jc prim_ssv_90
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		or eax,eax
 		jns prim_ssv_30
 		xor eax,eax
 prim_ssv_30:
 		cmp eax,100
 		jl prim_ssv_50
-		mov ax,100
+		mov eax,100
 prim_ssv_50:
 		or eax,eax
 		jns prim_ssv_60
-		xor ax,ax
+		xor eax,eax
 prim_ssv_60:
 		mov [sound_vol],al
 		call mod_setvolume
@@ -9156,16 +9199,19 @@ prim_ssv_90:
 ;
 ; int1: sample rate
 ;
+
+		bits 32
+
 prim_soundgetsamplerate:
-		mov ax,[pstack_ptr]
-		inc ax
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		inc eax
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_sgsr_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		movzx eax,byte [sound_sample]
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 prim_sgsr_90:
 		ret
@@ -9179,11 +9225,14 @@ prim_sgsr_90:
 ;
 ; int1: sample rate
 ;
+
+		bits 32
+
 prim_soundsetsamplerate:
 		mov dl,t_int
 		call get_1arg
 		jc prim_sssr_90
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		push eax
 		call sound_init
 		pop eax
@@ -9201,9 +9250,10 @@ prim_sssr_90:
 ;
 ; Note: obsolete. Sounds are played using the PC speaker.
 ;
+
+		bits 32
+
 prim_soundplay:
-
-
 		call sound_init
 		jc prim_splay_80
 prim_splay_80:
@@ -9218,6 +9268,9 @@ prim_splay_90:
 ;
 ; ( -- )
 ;
+
+		bits 32
+
 prim_sounddone:
 		call sound_done
 		clc
@@ -9225,11 +9278,14 @@ prim_sounddone:
 
 
 %if 0
+
+		bits 32
+
 prim_soundtest:
 		mov dl,t_int
 		call get_1arg
 		jc prim_stest_90
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 
 		mov [sound_x],eax
 		call sound_test
@@ -9248,11 +9304,14 @@ prim_stest_90:
 ; int1: player
 ; ptr1: mod file
 ;
+
+		bits 32
+
 prim_modload:
 		mov dx,t_ptr + (t_int << 8)
 		call get_2args
 		jc prim_modload_90
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 		xchg eax,ecx
 
 		; ecx mod file
@@ -9261,17 +9320,11 @@ prim_modload:
 		push eax
 		push ecx
 		call sound_init
-		pop ecx
+		pop edi
 		pop eax
 		jc prim_modload_80
 
-		push ecx
-		call lin2so
-		pop di
-		pop es
-
 		call mod_load
-
 prim_modload_80:
 		clc
 prim_modload_90:
@@ -9289,11 +9342,14 @@ prim_modload_90:
 ;
 ; Note: sounds are played using the PC speaker.
 ;
+
+		bits 32
+
 prim_modplay:
 		mov dx,t_int + (t_int << 8)
 		call get_2args
 		jc prim_modplay_90
-		sub word [pstack_ptr],byte 2
+		sub dword [pstack.ptr],2
 		xchg eax,ecx
 
 		; ecx start
@@ -9302,7 +9358,7 @@ prim_modplay:
 		cmp byte [sound_ok],0
 		jz prim_modplay_90
 
-		mov bx,cx
+		mov ebx,ecx
 		call mod_play
 
 		clc
@@ -9321,42 +9377,45 @@ prim_modplay_90:
 ; int3: sample number
 ; int4: pitch
 ;
+
+		bits 32
+
 prim_modplaysample:
 		mov bp,pserr_pstack_underflow
-		cmp  word [pstack_ptr],byte 4
+		cmp dword [pstack.ptr],4
 		jc prim_modps_90
 		mov bp,pserr_wrong_arg_types
 
-		mov cx,3
+		mov ecx,3
 		call get_pstack_tos
 		cmp dl,t_int
 		stc
 		jnz prim_modps_90
 
-		mov cx,2
-		push ax
+		mov ecx,2
+		push eax
 		call get_pstack_tos
-		pop bx
+		pop ebx
 		cmp dl,t_int
 		stc
 		jnz prim_modps_90
 
 		mov dx,t_int + (t_int << 8)
-		push bx
-		push ax
+		push ebx
+		push eax
 		call get_2args
-		pop bx
-		pop dx
+		pop ebx
+		pop edx
 		jc prim_modps_90
 
-		sub word [pstack_ptr],byte 4
+		sub dword [pstack.ptr],4
 
-		xchg ax,dx
+		xchg eax,edx
 
-		; 1: ax
-		; 2: bx
-		; 3: cx
-		; 4: dx
+		; 1: eax
+		; 2: ebx
+		; 3: ecx
+		; 4: edx
 
 		cmp byte [sound_ok],0
 		jz prim_modps_90
@@ -9368,24 +9427,6 @@ prim_modps_90:
 		ret
 
 
-%if 0
-prim_numtest:
-		mov dl,t_int
-		call get_1arg
-		jc prim_numtest_90
-
-		mov eax,[tmp_var_0 + 4*eax]
-
-		mov dl,t_int
-		xor cx,cx
-		call set_pstack_tos
-
-		clc
-prim_numtest_90:
-		ret
-%endif
-
-
 ;; settextwrap - set text wrap column
 ;
 ; group: text
@@ -9394,9 +9435,12 @@ prim_numtest_90:
 ;
 ; int1: text wrap column; set to 0 to turn text wrapping off.
 ;
+
+		bits 32
+
 prim_settextwrap:
 		call pr_setint
-		mov [line_wrap],ax
+		mov [line_wrap],eax
 		ret
 
 
@@ -9408,8 +9452,11 @@ prim_settextwrap:
 ;
 ; int1: text wrap column
 ;
+
+		bits 32
+
 prim_currenttextwrap:
-		movzx eax,word [line_wrap]
+		mov eax,[line_wrap]
 		jmp pr_getint
 
 
@@ -9424,6 +9471,9 @@ prim_currenttextwrap:
 ; Normally strings are 0 terminated. @seteotchar lets you define an
 ; additional char text functions recognize.
 ;
+
+		bits 32
+
 prim_seteotchar:
 		call pr_setint
 		mov [char_eot],eax
@@ -9438,6 +9488,9 @@ prim_seteotchar:
 ;
 ; int1: eot char
 ;
+
+		bits 32
+
 prim_currenteotchar:
 		mov eax,[char_eot]
 		jmp pr_getint
@@ -9451,9 +9504,12 @@ prim_currenteotchar:
 ;
 ; int1: maximum number of text rows to display in a single @show command.
 ;
+
+		bits 32
+
 prim_setmaxrows:
 		call pr_setint
-		mov [max_rows],ax
+		mov [max_rows],eax
 		ret
 
 
@@ -9465,8 +9521,11 @@ prim_setmaxrows:
 ;
 ; int1: maxium number of text rows to display in a single @show command.
 ;
+
+		bits 32
+
 prim_currentmaxrows:
-		movzx eax,word [max_rows]
+		mov eax,[max_rows]
 		jmp pr_getint
 
 
@@ -9480,23 +9539,31 @@ prim_currentmaxrows:
 ;
 ; Preprocess text to find (and remember) line breaks, links and stuff.
 ;
+
+		bits 32
+
 prim_formattext:
 		mov dl,t_string
 		call get_1arg
 		jc prim_formattext_90
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		push eax
-		xor ax,ax
-		mov cx,max_text_rows
-		mov di,row_start_ofs
+
+		push es
 		push ds
 		pop es
-		rep stosw
-		mov cx,link_entries * sizeof_link
-		mov di,link_list
+
+		xor eax,eax
+		mov ecx,max_text_rows
+		mov edi,row_text
+		rep stosd
+		mov ecx,link_entries * li.size
+		mov edi,link_list
 		rep stosb
-		pop eax
-		lin2segofs eax,es,si
+
+		pop es
+
+		pop esi
 		or byte [txt_state],2
 		call text_xy
 		and byte [txt_state],~2
@@ -9515,8 +9582,11 @@ prim_formattext_90:
 ;
 ; Note: available after running @formattext.
 ;
+
+		bits 32
+
 prim_gettextrows:
-		movzx eax,word [cur_row2]
+		mov eax,[cur_row2]
 		jmp pr_getint
 
 
@@ -9531,11 +9601,13 @@ prim_gettextrows:
 ; Note: if a start row > 0 is set, the argument to @show is irrelevant.
 ; Instead the internal data built during the last @formattext is used.
 ;
+
+		bits 32
+
 prim_setstartrow:
 		call pr_setint
-		mov [start_row],ax
+		mov [start_row],eax
 		ret
-
 
 
 ;; getlinks -- number of links in text
@@ -9548,8 +9620,11 @@ prim_setstartrow:
 ;
 ; Note: available after running @formattext.
 ;
+
+		bits 32
+
 prim_getlinks:
-		movzx eax,word [cur_link]
+		mov eax,[cur_link]
 		jmp pr_getint
 
 
@@ -9566,11 +9641,14 @@ prim_getlinks:
 ; 
 ; Note: int1 can be changed using @setcolor, too.
 ;
+
+		bits 32
+
 prim_settextcolors:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 4
+		cmp dword [pstack.ptr],4
 		jc prim_settextcolors_90
-		mov cx,3
+		mov ecx,3
 		call get_pstack_tos
 		cmp dl,t_int
 		stc
@@ -9579,10 +9657,10 @@ prim_settextcolors:
 		call encode_color
 		mov [gfx_color0],eax
 		mov [gfx_color],eax
-		mov cx,2
-		push bp
+		mov ecx,2
+		push ebp
 		call get_pstack_tos
-		pop bp
+		pop ebp
 		cmp dl,t_int
 		stc
 		jnz prim_settextcolors_90
@@ -9592,7 +9670,7 @@ prim_settextcolors:
 		call get_2args
 		jc prim_settextcolors_90
 
-		sub word [pstack_ptr],byte 4
+		sub dword [pstack.ptr],4
 
 		call encode_color
 		mov [gfx_color3],eax
@@ -9616,32 +9694,35 @@ prim_settextcolors_90:
 ; int3: link color
 ; int4: selected link color
 ; 
+
+		bits 32
+
 prim_currenttextcolors:
-		mov ax,[pstack_ptr]
-		add ax,4
-		cmp [pstack_size],ax
+		mov eax,[pstack.ptr]
+		add eax,4
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_currenttextcolors_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
 		mov dl,t_int
 		mov eax,[gfx_color3]
 		call decode_color
-		xor cx,cx
+		xor ecx,ecx
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color2]
 		call decode_color
-		mov cx,1
+		mov ecx,1
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color1]
 		call decode_color
-		mov cx,2
+		mov ecx,2
 		call set_pstack_tos
 		mov dl,t_int
 		mov eax,[gfx_color0]
 		call decode_color
-		mov cx,3
+		mov ecx,3
 		call set_pstack_tos
 prim_currenttextcolors_90:
 		ret
@@ -9655,12 +9736,14 @@ prim_currenttextcolors_90:
 ;
 ; int1: link number
 ;
+
+		bits 32
+
 prim_setlink:
 		call pr_setint
-		mov dx,[cur_link]
-		cmp ax,dx
+		cmp eax,[cur_link]
 		jae prim_setlink_90
-		mov [sel_link],ax
+		mov [sel_link],eax
 prim_setlink_90:
 		ret
 
@@ -9673,8 +9756,11 @@ prim_setlink_90:
 ;
 ; int1: selected link
 ;
+
+		bits 32
+
 prim_currentlink:
-		movzx eax,word [sel_link]
+		mov eax,[sel_link]
 		jmp pr_getint
 
 
@@ -9690,55 +9776,61 @@ prim_currentlink:
 ; int1: link text x-offset
 ; int2: link text row
 ;
+
+		bits 32
+
 prim_getlink:
 		mov dl,t_int
 		call get_1arg
 		jc prim_getlink_90
 		mov bp,pserr_invalid_range
-		cmp ax,[cur_link]
+		cmp eax,[cur_link]
 		cmc
 		jc prim_getlink_90
-		xchg ax,di
-		shl di,3		; sizeof_link = 8
-		add di,link_list
-		mov ax,[pstack_ptr]
-		add ax,3
-		cmp [pstack_size],ax
+		shl eax,2
+		lea edi,[link_list+2*eax+eax]		; li.size = 12 (3*4)
+		mov eax,[pstack.ptr]
+		add eax,3
+		cmp [pstack.size],eax
 		mov bp,pserr_pstack_overflow
 		jb prim_getlink_90
-		mov [pstack_ptr],ax
+		mov [pstack.ptr],eax
+
 		mov dl,t_string
-		segofs2lin ds, word label_buf,eax
-		mov cx,3
-		call set_pstack_tos
-		mov dl,t_string
-		segofs2lin word [row_start_seg],word [di+li_text],eax
-		mov cx,2
-		call set_pstack_tos
-		mov dl,t_int
-		movzx eax,word [di+li_x]
-		mov cx,1
-		call set_pstack_tos
-		mov dl,t_int
-		movzx eax,word [di+li_row]
-		xor cx,cx
+		mov eax,label_buf
+		add eax,[prog.base]
+		mov ecx,3
 		call set_pstack_tos
 
-		mov es,[row_start_seg]
-		mov si,[di+li_label]
-		mov di,label_buf
-		mov cx,32		; sizeof buf
+		mov dl,t_string
+		mov eax,[edi+li.text]
+		mov ecx,2
+		call set_pstack_tos
+
+		mov dl,t_int
+		movzx eax,word [edi+li.x]
+		mov ecx,1
+		call set_pstack_tos
+
+		mov dl,t_int
+		movzx eax,word [edi+li.row]
+		xor ecx,ecx
+		call set_pstack_tos
+
+		mov esi,[edi+li.label]
+		mov edi,label_buf
+		mov ecx,32			; sizeof label_buf
 prim_getlink_50:
 		es lodsb
 		cmp al,13h
 		jz prim_getlink_60
 		or al,al
 		jz prim_getlink_60
-		mov [di],al
-		inc di
+		mov [edi],al
+		inc edi
 		loop prim_getlink_50
 prim_getlink_60:
-		mov byte [di],0
+		mov byte [edi],0
 		clc
 prim_getlink_90:
 		ret
@@ -9752,8 +9844,11 @@ prim_getlink_90:
 ;
 ; int1: line height
 ;
+
+		bits 32
+
 prim_lineheight:
-		movzx eax,word [font_line_height]
+		movzx eax,word [font.line_height]
 		jmp pr_getint
 
 
@@ -9767,8 +9862,11 @@ prim_lineheight:
 ;
 ; Note: available after running @formattext.
 ;
+
+		bits 32
+
 prim_currenttitle:
-		segofs2lin word [row_start_seg],word [page_title],eax
+		mov eax,[page_title]
 		mov dl,t_string
 		jmp pr_getobj
 
@@ -9784,9 +9882,11 @@ prim_currenttitle:
 ; Note: the actual granularity is 18Hz, so don't make up too sophisticated
 ; timings.
 ;
+
+		bits 32
+
 prim_usleep:
 		call pr_setint
-
 		mov ecx,54944/2
 		add eax,ecx
 		add ecx,ecx
@@ -9817,6 +9917,9 @@ prim_usleep_90:
 ;
 ; Turns off any automatic booting.
 ;
+
+		bits 32
+
 prim_notimeout:
 		mov byte [input_notimeout],1
 		clc
@@ -9831,6 +9934,9 @@ prim_notimeout:
 ;
 ; int1: time in seconds since midnight.
 ;
+
+		bits 32
+
 prim_time:
 		call get_time
 		jmp pr_getint
@@ -9844,100 +9950,12 @@ prim_time:
 ;
 ; int1: date (bit 0-7: day, bit 8-15: month, bit 16-31: year)
 ;
+
+		bits 32
+
 prim_date:
 		call get_date
 		jmp pr_getint
-
-
-;; setbrightness - set brightness
-;
-; group: image
-;
-; ( int1 -- )
-;
-; int1: 0 .. 256 (0 = black, 256 = normal)
-;
-; Taken into account in @loadpalette. Maybe useful for fading effects.
-;
-prim_setbrightness:
-		call pr_setint
-		mov [brightness],ax
-		ret
-
-
-;; currentbrightness - current brightness
-;
-; group: image
-;
-; ( -- int1 )
-;
-; int1: 0 .. 256 (0 = black, 256 = normal)
-;
-prim_currentbrightness:
-		movzx eax,word [brightness]
-		jmp pr_getint
-
-
-;; fadein - some obscure thing
-;
-; group: obsolete
-;
-; ( str1 int1 -- )
-;
-; str1: palette
-; int1: some palette index
-;
-; Note: obsolete, forget it.
-;
-prim_fadein:
-		mov dx,t_int + (t_string << 8)
-		call get_2args
-		jc prim_get_90
-
-		sub word [pstack_ptr],byte 2
-
-		lin2segofs ecx,es,bx
-		call fade_in
-
-		clc
-prim_fadein_90:
-		ret
-
-
-;; fade -- some obscure thing
-;
-; group: obsolete
-;
-; ( str1 int1 int2 -- )
-;
-; Note: obsolete, forget it.
-;
-prim_fade:
-		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 3
-		jc prim_fade_90
-		mov bp,pserr_wrong_arg_types
-		mov cx,2
-		call get_pstack_tos
-		cmp dl,t_string
-		stc
-		jnz prim_fade_90
-		push eax
-		mov dx,t_int + (t_int << 8)
-		call get_2args
-		pop edx
-		jc prim_fade_90
-
-		sub word [pstack_ptr],byte 3
-
-		mov bp,ax
-		mov ax,cx
-		lin2segofs edx,es,bx
-		call fade_one
-
-		clc
-prim_fade_90:
-		ret
 
 
 ;; idle - run stuff when idle
@@ -9951,6 +9969,9 @@ prim_fade_90:
 ;
 ; Run 'kroete' animation while we're waiting for keyboard input.
 ;
+
+		bits 32
+
 prim_idle:
 		mov dx,t_int + (t_ptr << 8)
 		call get_2args
@@ -9959,15 +9980,35 @@ prim_idle:
 		stc
 		jnz prim_idle_90
 prim_idle_10:
-		sub word [pstack_ptr],byte 2
-		mov byte [run_idle],0
+		sub dword [pstack.ptr],2
 		cmp dh,t_none			; undef
-		jz prim_idle_90
-		push ecx
-		call lin2so
-		pop dword [idle_data]
-		mov [idle_data2],eax
-		mov byte [run_idle],1
+		jnz prim_idle_50
+		mov byte [idle.run],0
+		mov eax,[idle.draw_buffer]
+		or eax,eax
+		jz prim_idle_80
+		call free
+		and dword [idle.draw_buffer],0
+		jmp prim_idle_80
+prim_idle_50:
+		mov [idle.data1],ecx
+		mov [idle.data2],eax
+
+		mov byte [idle.invalid],1
+
+		cmp dword [idle.draw_buffer],0
+		jnz prim_idle_70
+
+		mov ecx,kroete.width
+		mov eax,kroete.height
+		call alloc_fb
+		mov [idle.draw_buffer],eax
+		or eax,eax
+		jz prim_idle_80
+
+prim_idle_70:
+		mov byte [idle.run],1
+prim_idle_80:
 		clc
 prim_idle_90:
 		ret
@@ -9981,6 +10022,9 @@ prim_idle_90:
 ;
 ; int1 = 1: keep video mode when starting kernel.
 ;
+
+		bits 32
+
 prim_keepmode:
 		call pr_setint
 		mov [keep_mode],al
@@ -10005,14 +10049,17 @@ prim_keepmode:
 ;
 ; Note: 16/32-bit modes only.
 ;
+
+		bits 32
+
 prim_blend:
 		mov bp,pserr_pstack_underflow
-		cmp word [pstack_ptr],byte 3
+		cmp dword [pstack.ptr],3
 		jc prim_blend_90
 
 		and dword [tmp_var_0],0
 
-		mov cx,2
+		mov ecx,2
 		call get_pstack_tos
 		cmp dl,t_none
 		jnz prim_blend_21
@@ -10031,7 +10078,7 @@ prim_blend_22:
 prim_blend_23:
 		mov [tmp_var_1],eax
 
-		mov cx,1
+		mov ecx,1
 		call get_pstack_tos
 		cmp dl,t_none
 		jnz prim_blend_31
@@ -10046,21 +10093,22 @@ prim_blend_31:
 prim_blend_33:
 		mov [tmp_var_2],eax
 
-		xor cx,cx
+		xor ecx,ecx
 		call get_pstack_tos
 		cmp dl,t_none
 		jnz prim_blend_35
-		sub word [pstack_ptr],3
-		jmp prim_blend_85
+		sub dword [pstack.ptr],3
+		; CF = 0
+		jmp prim_blend_90
 prim_blend_35:
 		cmp dl,t_ptr
 		jnz prim_blend_22
 
 		mov [tmp_var_3],eax
 
-		sub word [pstack_ptr],3
+		sub dword [pstack.ptr],3
 
-		; tmp_var_0: bit 0, 1 = src, alpha type
+		; tmp_var_0: bit 0, 1: src type, alpha type (0 = ptr, 1 = int)
 		; tmp_var_1: src
 		; tmp_var_2: alpha
 		; tmp_var_3: dst
@@ -10069,46 +10117,32 @@ prim_blend_35:
 		mov ebx,[tmp_var_2]
 
 		mov al,[tmp_var_0]
-		test al,1
-		jnz prim_blend_40
-		lin2seg esi,fs,esi
-prim_blend_40:
-		test al,2
-		jnz prim_blend_50
-		lin2seg ebx,gs,ebx
-prim_blend_50:
 		or al,al
 		jnz prim_blend_60
 
 		; check image domensions
-		mov ecx,[fs:esi]
-		cmp ecx,[gs:ebx]
-		jz prim_blend_60
+		mov ecx,[es:esi]
+		cmp ecx,[es:ebx]
 
-		call lin_seg_off
-
-		jmp prim_blend_22
+		jnz prim_blend_22
 prim_blend_60:
-
-		lin2seg dword [tmp_var_3],es,edi
+		mov edi,[tmp_var_3]
 
 		; invalidates tmp_var_*
 		call blend
 
-		call lin_seg_off
-
-prim_blend_85:
 		clc
-
 prim_blend_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Helper function that covers common cases.
 
 ; return eax as ptr on stack, returns undef if eax = 0
+
+		bits 32
+
 pr_getptr_or_none:
 		mov dl,t_ptr
 		or eax,eax
@@ -10122,13 +10156,13 @@ pr_getint:
 
 ; return eax as dl on stack
 pr_getobj:
-		mov cx,[pstack_ptr]
-		inc cx
-		cmp [pstack_size],cx
+		mov ecx,[pstack.ptr]
+		inc ecx
+		cmp [pstack.size],ecx
 		mov bp,pserr_pstack_overflow
 		jc pr_getobj_90
-		mov [pstack_ptr],cx
-		xor cx,cx
+		mov [pstack.ptr],ecx
+		xor ecx,ecx
 		call set_pstack_tos
 pr_getobj_90:
 		ret
@@ -10145,7 +10179,7 @@ pr_setobj_or_none:
 		cmp dl,t_none
 		stc
 		jnz pr_setobj_10
-		dec word [pstack_ptr]
+		dec dword [pstack.ptr]
 		clc
 		jmp pr_setobj_10
 
@@ -10154,17 +10188,17 @@ pr_setint:
 		mov dl,t_int
 
 ; get object with type dl from stack as eax
-pr_setobj:
+pm_pr_setobj:
 		call get_1arg
 		jnc pr_setobj_20
 pr_setobj_10:
-		pop ax			; don't return to function that called us
+		pop eax			; don't return to function that called us
 		ret
 pr_setobj_20:
-		dec word [pstack_ptr]
-		pop cx			; put link to clc on stack
-		push word pr_setobj_30
-		jmp cx
+		dec dword [pstack.ptr]
+		pop ecx			; put link to clc on stack
+		push dword pr_setobj_30
+		jmp ecx
 pr_setobj_30:
 		clc
 		ret
@@ -10177,14 +10211,62 @@ pr_setobj_30:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get object size.
 ;
-;  al			arg type; bit 0, 1: src, alpha is int (1) or ptr (0)
-;  fs:esi		src
-;  gs:ebx		alpha
-;  es:edi		dst
+; eax, dl	obj, obj tyoe
+;
+; return:
+;
+;  eax		length
+;   CF		0/1 ok/not ok
+;
+
+		bits 32
+
+get_length:
+		cmp dl,t_ptr
+		jz get_length_10
+		cmp dl,t_array
+		jz get_length_20
+		cmp dl,t_string
+		jz get_length_30
+		stc
+		jmp get_length_90
+get_length_10:
+		call find_mem_size
+		jmp get_length_80
+get_length_20:
+		movzx eax,word [es:eax]
+		jmp get_length_80
+get_length_30:
+		xchg eax,esi
+		xor ecx,ecx
+		xor eax,eax
+get_length_40:
+		es lodsb
+		call is_eot
+		loopnz get_length_40
+		not ecx
+		xchg eax,ecx
+get_length_80:
+		clc
+get_length_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Blend src & dst using alpha channel.
+;
+;  al		arg type; bit 0, 1: src, alpha (0 = ptr, 1 = int)
+;  esi		src
+;  ebx		alpha
+;  edi		dst
 ;  word [gfx_cur_x]	offset into src
 ;  word [gfx_cur_y]	dto
 ;
+
+		bits 32
+
 blend:
 		push dword [transp]
 
@@ -10197,11 +10279,11 @@ blend_10:
 		mov ebp,[es:edi]
 		test al,2
 		jnz blend_12
-		mov ebp,[gs:ebx]
+		mov ebp,[es:ebx]
 blend_12:
 		test al,1
 		jnz blend_14
-		mov ebp,[fs:esi]
+		mov ebp,[es:esi]
 blend_14:
 
 		mov [tmp_var_0],al
@@ -10279,6 +10361,8 @@ blend_90:
 
 		ret
 
+
+		align 4, db 0
 blend_pixel	dd 0
 
 blend_pixel_16	dd blend_pixel_00_16
@@ -10291,15 +10375,16 @@ blend_pixel_32	dd blend_pixel_00_32
 		dd blend_pixel_10_32
 		dd blend_pixel_11_32
 
+
 ; src: image, alpha: image
 blend_pixel_00_16:
-		mov ax,[gs:ebx]
+		mov ax,[es:ebx]
 		call decode_color
 
 		movzx eax,ah
 		mov [transp],eax
 
-		mov ax,[fs:esi]
+		mov ax,[es:esi]
 		call decode_color
 		xchg ecx,eax
 
@@ -10313,7 +10398,7 @@ blend_pixel_00_16:
 
 ; src: color, alpha: image
 blend_pixel_01_16:
-		mov ax,[gs:ebx]
+		mov ax,[es:ebx]
 		call decode_color
 
 		movzx eax,ah
@@ -10331,7 +10416,7 @@ blend_pixel_01_16:
 
 ; src: image, alpha: fixed
 blend_pixel_10_16:
-		mov ax,[fs:esi]
+		mov ax,[es:esi]
 		call decode_color
 		xchg eax,ecx
 
@@ -10357,11 +10442,11 @@ blend_pixel_11_16:
 
 ; src: image, alpha: image
 blend_pixel_00_32:
-		mov eax,[gs:ebx]
+		mov eax,[es:ebx]
 		movzx eax,ah
 		mov [transp],eax
 
-		mov ecx,[fs:esi]
+		mov ecx,[es:esi]
 
 		mov eax,[es:edi]
 		call enc_transp
@@ -10371,7 +10456,7 @@ blend_pixel_00_32:
 
 ; src: color, alpha: image
 blend_pixel_01_32:
-		mov eax,[gs:ebx]
+		mov eax,[es:ebx]
 		movzx eax,ah
 		mov [transp],eax
 
@@ -10385,7 +10470,7 @@ blend_pixel_01_32:
 
 ; src: image, alpha: fixed
 blend_pixel_10_32:
-		mov ecx,[fs:esi]
+		mov ecx,[es:esi]
 
 		mov eax,[es:edi]
 		call enc_transp
@@ -10403,10 +10488,13 @@ blend_pixel_11_32:
 		mov [es:edi],eax
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Ensure the cursor is always within the visible area.
 ;
-; ensure the cursor is always within the visible area
-;
+
+		bits 32
+
 edit_align:
 		mov cx,[edit_width]
 		mov dx,cx
@@ -10420,68 +10508,70 @@ edit_align:
 		jge edit_align_90
 		add [edit_shift],ax
 		jge edit_align_90
-		and word [edit_shift],byte 0
+		and word [edit_shift],0
 		jmp edit_align_90
 edit_align_50:
 		sub cx,ax
-		sub cx,byte 5		; still 5 pixel away?
+		sub cx,5		; still 5 pixel away?
 		jge edit_align_90
 		sub [edit_shift],cx
 edit_align_90:
 		ret
 
 
-
-
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-;  es:bx	string
-;  si		ptr to char (rel. to es:bx)
+;  ebx		string
+;  esi		ptr to char (rel. to ebx)
 ;
 ; return:
-;  si		points to prev char
+;  esi		points to prev char
 ;
 ;  Changes no other regs.
 ;
+
+		bits 32
+
 utf8_prev:
-		push ax
-		or si,si
+		push eax
+		or esi,esi
 		jz utf8_prev_90
 utf8_prev_50:
-		dec si
+		dec esi
 		jz utf8_prev_90
-		mov al,[es:bx+si]
+		mov al,[es:ebx+esi]
 		shr al,6
 		cmp al,2
 		jz utf8_prev_50
 utf8_prev_90:
-		pop ax
+		pop eax
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
-;  es:bx	string
-;  si		ptr to char (rel. to es:bx)
+;  ebx		string
+;  esi		ptr to char (rel. to ebx)
 ;
 ; return:
-;  si		points to next char
+;  esi		points to next char
 ;
 ;  Changes no other regs.
 ;
+
+		bits 32
+
 utf8_next:
-		push ax
-		cmp byte [es:bx+si],0
+		push eax
+		cmp byte [es:ebx+esi],0
 		jz utf8_next_90
 utf8_next_50:
-		inc si
-		mov al,[es:bx+si]
+		inc esi
+		mov al,[es:ebx+esi]
 		shr al,6
 		cmp al,2
 		jz utf8_next_50
 utf8_next_90:
-		pop ax
+		pop eax
 		ret
 
 
@@ -10489,77 +10579,82 @@ utf8_next_90:
 ;
 ; eax		key (bits 0-23: key, 24-31: scan code)
 ;
+
+		bits 32
+
 edit_input:
 		mov edx,eax
 		shr edx,24
 		and eax,1fffffh
-		les si,[edit_buf]
-		mov bx,si
+		mov esi,[edit_buf]
 
-		dec si
+		mov ebx,esi
+		dec esi
+
 edit_input_10:
-		inc si
-		cmp byte [es:si],0
+		inc esi
+		cmp byte [es:esi],0
 		jnz edit_input_10
-		mov cx,si
-		sub cx,bx
-		; cx: string length
+		mov ecx,esi
+		sub ecx,ebx
 
-		mov si,[edit_buf_ptr]
+		; ecx: string length
+
+		movzx esi,word [edit_buf_ptr]
 
 		cmp dl,keyLeft
 		jnz edit_input_20
-		mov di,si
+		mov edi,esi
 		call utf8_prev
-		cmp di,si
+		cmp edi,esi
 		jz edit_input_90
 		mov [edit_buf_ptr],si
 		jmp edit_input_80
 edit_input_20:
 		cmp dl,keyRight
 		jnz edit_input_21
-		mov di,si
+		mov edi,esi
 		call utf8_next
-		cmp di,si
+		cmp edi,esi
 		jz edit_input_90
 		mov [edit_buf_ptr],si
 		jmp edit_input_80
 edit_input_21:
 		cmp dl,keyEnd
 		jnz edit_input_22
-		cmp byte [es:bx+si],0
+		cmp byte [es:ebx+esi],0
 		jz edit_input_90
 		mov [edit_buf_ptr],cx
 		jmp edit_input_80
 edit_input_22:
 		cmp dl,keyHome
 		jnz edit_input_23
-		or si,si
+		or esi,esi
 		jz edit_input_90
-		and word [edit_buf_ptr],byte 0
+		and word [edit_buf_ptr],0
 		jmp edit_input_80
 edit_input_23:
 		cmp dl,keyDel
 		jnz edit_input_30
 edit_input_24:
-		mov di,si
+		mov edi,esi
 		call utf8_next
-		cmp di,si
+		cmp edi,esi
 		jz edit_input_90
 edit_input_25:
-		mov al,[es:bx+si]
-		mov [es:bx+di],al
-		inc si
-		inc di
+		mov al,[es:ebx+esi]
+		mov [es:ebx+edi],al
+		inc esi
+		inc edi
 		or al,al
 		jnz edit_input_25
 		jmp edit_input_80
 edit_input_30:
 		cmp eax,keyBS
 		jnz edit_input_35
-		mov di,si
+		mov edi,esi
 		call utf8_prev
-		cmp di,si
+		cmp edi,esi
 		jz edit_input_90
 		mov [edit_buf_ptr],si
 		jmp edit_input_24
@@ -10570,81 +10665,83 @@ edit_input_35:
 
 		; reject chars we can't display
 		pusha
-		push es
 		call char_width
-		or cx,cx
-		pop es
+		or ecx,ecx
 		popa
 		jz edit_input_90
 
-		push cx
-		push bx
-		push si
+		push ecx
+		push ebx
+		push esi
 		call utf8_enc
-		pop si
-		pop bx
-		pop ax
+		pop esi
+		pop ebx
+		pop eax
 
-		mov dx,[edit_buf_len]
-		sub dx,ax
-		sub dx,cx
+		movzx edx,word [edit_buf_len]
+		sub edx,eax
+		sub edx,ecx
 		jb edit_input_90
-		cmp dx,1
+		cmp edx,1
 		jb edit_input_90
 		sub ax,[edit_buf_ptr]
 		add [edit_buf_ptr],cx
 
-		; ax: bytes to copy (excl. final 0)
-		; cx: utf8 size
+		; eax: bytes to copy (excl. final 0)
+		; ecx: utf8 size
 
-		push si
-		add si,ax
-		mov di,si
-		add di,cx
-		inc ax
+		push esi
+
+		add esi,eax
+		mov edi,esi
+		add edi,ecx
+		inc eax
 edit_input_70:
-		mov dl,[es:bx+si]
-		mov [es:bx+di],dl
-		dec si
-		dec di
-		dec ax
+		mov dl,[es:ebx+esi]
+		mov [es:ebx+edi],dl
+		dec esi
+		dec edi
+		dec eax
 		jnz edit_input_70
-		pop si
 
-		mov di,utf8_buf
+		pop esi
+
+		mov edi,utf8_buf
 edit_input_75:
-		mov al,[di]
-		mov [es:bx+si],al
-		inc di
-		inc si
-		dec cx
+		mov al,[edi]
+		mov [es:ebx+esi],al
+		inc edi
+		inc esi
+		dec ecx
 		jnz edit_input_75
 
 edit_input_80:
-		mov si,[edit_buf_ptr]
+		movzx esi,word [edit_buf_ptr]
 		mov al,0
-		xchg al,[es:bx+si]
-		push ax
-		push si
-		push bx
-		push es
-		mov si,bx
+		xchg al,[es:ebx+esi]
+		push eax
+		push esi
+		push ebx
+
+		mov esi,ebx
 		call str_size
-		pop es
-		pop bx
-		pop si
-		pop ax
-		xchg al,[es:bx+si]
+
+		pop ebx
+		pop esi
+		pop eax
+		xchg al,[es:ebx+esi]
 		mov [edit_cursor],cx
 
 		call edit_align
-		
 		call edit_redraw
 edit_input_90:
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
+		bits 32
+
 edit_redraw:
 		mov ax,[edit_x]
 		sub ax,[edit_shift]
@@ -10653,16 +10750,14 @@ edit_redraw:
 		add ax,[edit_y_ofs]
 		mov [gfx_cur_y],ax
 
-		les si,[edit_buf]
+		mov esi,[edit_buf]
 edit_redraw_20:
 		call utf8_dec
 		or eax,eax
 		jz edit_redraw_50
-		push si
-		push es
+		push esi
 		call edit_char
-		pop es
-		pop si
+		pop esi
 		jmp edit_redraw_20
 edit_redraw_50:
 		mov ax,[edit_x]
@@ -10688,8 +10783,8 @@ edit_redraw_50:
 edit_redraw_90:
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write char at current cursor position.
 ;
 ;  eax		char
@@ -10698,9 +10793,10 @@ edit_redraw_90:
 ; return:
 ;  cursor position gets advanced
 ;
-edit_char:
-		push fs
 
+		bits 32
+
+edit_char:
 		push word [clip_r]
 		push word [clip_l]
 
@@ -10713,8 +10809,8 @@ edit_char:
 
 		call find_char
 
-		cmp byte [chr_width],0
-		jz edit_char_80
+		cmp word [chr.x_advance],0
+		jle edit_char_80
 
 		mov edi,[edit_bg]
 		add edi,4
@@ -10730,8 +10826,8 @@ edit_char:
 		movsx ecx,cx
 		add edi,ecx
 
-		mov dx,[chr_width]
-		mov cx,[font_height]
+		mov dx,[chr.x_advance]
+		mov cx,[font.height]
 
 		call restore_bg
 
@@ -10744,12 +10840,14 @@ edit_char_80:
 		pop word [clip_r]
 
 edit_char_90:
-		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
+
+		bits 32
+
 edit_hide_cursor:
 		mov edi,[edit_bg]
 		add edi,4
@@ -10767,13 +10865,18 @@ edit_hide_cursor:
 		mov dx,1
 		mov bx,[edit_width]
 		imul bx,[pixel_bytes]
-
 		call restore_bg
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
+
 edit_show_cursor:
+		push fs
+		push gs
+
 		call screen_segs
 
 		mov ax,[edit_cursor]
@@ -10782,154 +10885,155 @@ edit_show_cursor:
 		mov [gfx_cur_x],ax
 		push word [edit_y]
 		pop word [gfx_cur_y]
-		mov cx,[edit_height]
+		movzx ecx,word [edit_height]
 edit_show_cursor_10:
-		push cx
+		push ecx
 		call goto_xy
 		call [setpixel_t]
-		pop cx
+		pop ecx
 		inc word [gfx_cur_y]
 		loop edit_show_cursor_10
+
+		pop gs
+		pop fs
 		ret
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
-; es:si		initial text
+; esi		initial text
 ;
+
+		bits 32
+
 edit_init:
-		push fs
-		push es
-		pop fs
-		xor cx,cx
+		xor ecx,ecx
 		mov [edit_shift],cx
-		les di,[edit_buf]
+		mov edi,[edit_buf]
 edit_init_10:
-		fs lodsb
+		es lodsb
 		or al,al
 		jz edit_init_20
 		stosb
-		inc cx
+		inc ecx
 		cmp cx,[edit_buf_len]
 		jb edit_init_10
-		dec cx
-		dec di
+		dec ecx
+		dec edi
 edit_init_20:
-		mov byte [es:di],0
+		mov byte [es:edi],0
 		mov [edit_buf_ptr],cx
 
-		mov si,[edit_buf]
+		mov esi,[edit_buf]
 		call str_size
+
 		mov [edit_cursor],cx
 
 		call edit_align
-
 		call edit_redraw
 		call edit_show_cursor
 edit_init_90:
-		pop fs
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Store internal input field state.
 ;
-; es:si		parameter array
+;  esi		parameter array
 ;
-; note: no consistency checks done, es:si _must_ point to
-; a valid array
+; Note: no consistency checks done, esi _must_ point to a valid array.
 ;
+
+		bits 32
+
 edit_put_params:
 		push word [edit_buf_ptr]
-		pop word [es:si+2+5*5+1]
+		pop word [es:esi+2+5*5+1]
 		
 		push word [edit_cursor]
-		pop word [es:si+2+5*6+1]
+		pop word [es:esi+2+5*6+1]
 		
 		push word [edit_shift]
-		pop word [es:si+2+5*7+1]
+		pop word [es:esi+2+5*7+1]
 
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Copy input field parameters into internal structures.
 ;
-;  es:si	parameter array
+;  esi		parameter array
 ;
 ; return:
 ;  CF		invalid data
 ;
+
+		bits 32
+
 edit_get_params:
 		es lodsw
 		cmp ax,8
 		jc edit_get_params_90
 
-		cmp byte [es:si+5*0],t_int
+		cmp byte [es:esi+5*0],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*0+1]
+		push word [es:esi+5*0+1]
 		pop word [edit_x]
 
-		cmp byte [es:si+5*1],t_int
+		cmp byte [es:esi+5*1],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*1+1]
+		push word [es:esi+5*1+1]
 		pop word [edit_y]
 		
-		cmp byte [es:si+5*2],t_ptr
+		cmp byte [es:esi+5*2],t_ptr
 		jnz edit_get_params_80
-		push dword [es:si+5*2+1]
+		push dword [es:esi+5*2+1]
 		pop dword [edit_bg]
 		
-		cmp byte [es:si+5*3],t_string
+		cmp byte [es:esi+5*3],t_string
 		jnz edit_get_params_80
-		push dword [es:si+5*3+1]
-		call lin2so
-		pop dword [edit_buf]
+		mov eax,[es:esi+5*3+1]
+		mov [edit_buf],eax
 		
-		cmp byte [es:si+5*4],t_int
+		cmp byte [es:esi+5*4],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*4+1]
+		push word [es:esi+5*4+1]
 		pop word [edit_buf_len]
 		
-		cmp byte [es:si+5*5],t_int
+		cmp byte [es:esi+5*5],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*5+1]
+		push word [es:esi+5*5+1]
 		pop word [edit_buf_ptr]
 		
-		cmp byte [es:si+5*6],t_int
+		cmp byte [es:esi+5*6],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*6+1]
+		push word [es:esi+5*6+1]
 		pop word [edit_cursor]
 		
-		cmp byte [es:si+5*7],t_int
+		cmp byte [es:esi+5*7],t_int
 		jnz edit_get_params_80
-		push word [es:si+5*7+1]
+		push word [es:esi+5*7+1]
 		pop word [edit_shift]
 		
-		lin2seg dword [edit_bg],es,esi
-		es a32 lodsw
+		mov esi,[edit_bg]
+		es lodsw
 		mov [edit_width],ax
-		es a32 lodsw
+		es lodsw
 		mov [edit_height],ax
-		call lin_seg_off
 
-		mov cx,[font_height]
+		mov cx,[font.height]
 		sub ax,cx
 		sar ax,1
 		mov [edit_y_ofs],ax
 
-		cmp word [edit_buf_len],byte 2		; at least 1 char
-		jc edit_get_params_90
-
-		movzx eax,word [edit_width]
-		movzx ecx,word [edit_height]
-		mul ecx
-		cmp eax,10000h-20
-		jae edit_get_params_80			; to large: max 64k
-
-		clc
-		jmp edit_get_params_90
+		cmp word [edit_buf_len],2		; at least 1 char
+		jnc edit_get_params_90
 
 edit_get_params_80:
+
 		stc
 edit_get_params_90:
 		ret
+
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;
@@ -10939,39 +11043,45 @@ edit_get_params_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; map next window segment
+; Map next window segment.
 ;
+
+		bits 32
+
 inc_winseg:
-		push ax
-		mov al,[cs:mapped_window]
+		push eax
+		mov al,[mapped_window]
 		inc al
 		call set_win
-		pop ax
+		pop eax
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; map window segment
+; Map window segment.
 ;
-; 	al	= window segment
+;  al		window segment
 ;
+
+		bits 32
+
 set_win:
 		push edi
-		cmp byte [cs:vbe_active],0
+		cmp byte [vbe_active],0
 		jz set_win_90
-		cmp [cs:mapped_window],al
+		cmp [mapped_window],al
 		jz set_win_90
 		pusha
-		mov [cs:mapped_window],al
-		mov ah,[cs:window_inc]
+		mov [mapped_window],al
+		mov ah,[window_inc]
 		mul ah
-		xchg ax,dx
+		xchg eax,edx
 		mov ax,4f05h
-		xor bx,bx
-		cmp word [cs:window_seg_r],0
+		xor ebx,ebx
+		cmp word [window_seg_r],0
 		jz set_win_50
 		pusha
-		inc bx
+		inc ebx
 		int 10h
 		popa
 set_win_50:
@@ -10982,9 +11092,7 @@ set_win_90:
 		ret
 
 
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Go to current cursor position.
 ;
 ; return:
@@ -10993,28 +11101,29 @@ set_win_90:
 ;
 ; Notes:
 ;  - changes no regs other than edi
-;  - does not require ds == cs
 ;
+
+		bits 32
+
 goto_xy:
-		push ax
-		push dx
-		mov ax,[cs:gfx_cur_y]
-		movzx edi,word [cs:gfx_cur_x]
-		imul di,[pixel_bytes]
-		mul word [cs:screen_line_len]
+		push eax
+		push edx
+		mov ax,[gfx_cur_y]
+		movzx edi,word [gfx_cur_x]
+		imul edi,[pixel_bytes]
+		mul word [screen_line_len]
 		add ax,di
 		adc dx,0
 		push ax
 		xchg ax,dx
 		call set_win
 		pop di
-		pop dx
-		pop ax
+		pop edx
+		pop eax
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Set active color.
 ;
 ; eax		color
@@ -11022,12 +11131,24 @@ goto_xy:
 ; return:
 ;  [gfx_color]	color
 ;
-;  Changed registers: eax
-;
+
+		bits 32
+
 setcolor:
 		mov [gfx_color],eax
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Encode rgb value to color.
+;
+;  eax		rgb value
+;
+; return:
+;  eax		color
+;
+
+		bits 32
 
 encode_color:
 		cmp byte [pixel_bits],16
@@ -11045,6 +11166,17 @@ encode_color:
 encode_color_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Decode color to rgb.
+;
+;  eax		color
+;
+; return:
+;  eax		rgb value
+;
+
+		bits 32
 
 decode_color:
 		cmp byte [pixel_bits],16
@@ -11066,29 +11198,39 @@ decode_color_90:
 		ret
 
 
-;  ax		palette index
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Look up rgb value for palette entry.
+;
+;  eax		palette index
 ;
 ; return:
 ;  eax		color
 ;
+
+		bits 32
+
 pal_to_color:
-		push gs
-		push si
-		lgs si,[gfx_pal]
-		add si,ax
-		add si,ax
-		add si,ax
-		mov eax,[gs:si]
+		lea eax,[eax+2*eax]
+		add eax,[gfx_pal]
+		mov eax,[es:eax]
 		bswap eax
 		shr eax,8
-		pop si
-		pop gs
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; draw a line
+; Draw a line.
 ;
+; [line_x0], [line_y0]	start
+; [line_x1], [line_y1]	end
+;
+
+		bits 32
+
 line:
+		push fs
+		push gs
+
 		xor eax,eax
 		xor ebx,ebx
 		inc ax
@@ -11137,7 +11279,6 @@ line_23:
 		shl ecx,1
 line_25:
 
-		; es  -> window
 		; edi -> address
 		; ecx -> d_x
 		; edx -> d_y
@@ -11199,6 +11340,8 @@ line_60:
 
 		call line_pp
 
+		pop gs
+		pop fs
 		ret
 
 line_pp:
@@ -11213,32 +11356,36 @@ line_pp:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set pixel at gs:edi.
 ;
-; Set pixel at es:di.
+; setpixel_* read from [fs:edi] and write to [gs:edi]
 ;
+
+		bits 32
+
 setpixel_8:
 		mov al,[gfx_color]
 
 setpixel_a_8:
-		mov [es:edi],al
+		mov [gs:edi],al
 		ret
 
 setpixel_16:
 		mov ax,[gfx_color]
 
 setpixel_a_16:
-		mov [es:edi],ax
+		mov [gs:edi],ax
 		ret
 
 setpixel_32:
 		mov eax,[gfx_color]
 
 setpixel_a_32:
-		mov [es:edi],eax
+		mov [gs:edi],eax
 		ret
 
 
-; with transparency
+; set pixel with transparency
 setpixel_t_16:
 		mov ax,[gfx_color]
 
@@ -11254,7 +11401,7 @@ setpixel_ta_16:
 		call enc_transp
 		pop ecx
 		call encode_color
-		mov [es:edi],ax
+		mov [gs:edi],ax
 		ret
 
 setpixel_t_32:
@@ -11267,7 +11414,21 @@ setpixel_ta_32:
 		mov ecx,[fs:edi]
 		call enc_transp
 		pop ecx
-		mov [es:edi],eax
+		mov [gs:edi],eax
+		ret
+
+; (1 - t) eax + t * ecx -> eax
+enc_transp:
+		ror ecx,16
+		ror eax,16
+		call add_transp
+		rol ecx,8
+		rol eax,8
+		call add_transp
+		rol ecx,8
+		rol eax,8
+		call add_transp
+		mov eax,ecx
 		ret
 
 ; cl, al -> cl
@@ -11295,88 +11456,84 @@ add_transp_20:
 		ret
 
 
-; (1 - t) eax + t * ecx -> eax
-enc_transp:
-		ror ecx,16
-		ror eax,16
-		call add_transp
-		rol ecx,8
-		rol eax,8
-		call add_transp
-		rol ecx,8
-		rol eax,8
-		call add_transp
-		mov eax,ecx
-		ret
-
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Get pixel from fs:edi.
 ;
-; Get pixel from fs:si.
+; getpixel_* read from [fs:edi]
 ;
+
+		bits 32
+
 getpixel_8:
-		mov al,[fs:esi]
+		mov al,[fs:edi]
 		ret
 
 getpixel_16:
-		mov ax,[fs:esi]
+		mov ax,[fs:edi]
 		ret
 
 getpixel_32:
-		mov eax,[fs:esi]
+		mov eax,[fs:edi]
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; initialize console font (used for debug output)
+; Initialize console font (used for debug output).
 ;
+
+		bits 32
+
 cfont_init:
 		; 3: 8x8, 2: 8x14, 6: 8x16
 		mov bh,6
 		mov ax,1130h
 		int 10h
-		mov [cfont],bp
-		mov [cfont+2],es
-		mov byte [cfont_height],16
+		movzx ebp,bp
+		movzx eax,word [rm_seg.es]
+		shl eax,4
+		add eax,ebp
+		mov [cfont.lin],eax
+
+		mov dword [cfont_height],16
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Initialize font.
 ;
-; eax		linear ptr to font header
+; eax		ptr to font header
 ;
+
+		bits 32
+
 font_init:
-		mov edx,eax
-		shr edx,31
-		mov [font_properties],dl
-		and eax,~(1 << 31)
-		lin2segofs eax,es,bx
-		cmp dword [es:bx+foh_magic],0d2828e07h	; magic
+		mov ebx,eax
+		shr eax,31
+		mov [font.properties],al
+		and ebx,~(1 << 31)
+		cmp dword [es:ebx+foh.magic],0d2828e06h		; magic
 		jnz font_init_90
-		mov ax,[es:bx+foh_entries]
-		mov dl,[es:bx+foh_height]
-		mov dh,[es:bx+foh_line_height]
-		or ax,ax
+		mov eax,[es:ebx+foh.entries]
+		mov dl,[es:ebx+foh.height]
+		mov dh,[es:ebx+foh.line_height]
+		movsx cx,byte [es:ebx+foh.baseline]
+		or eax,eax
 		jz font_init_90
 		or dx,dx
 		jz font_init_90
-		mov [font_entries],ax
-		mov [font_height],dl
-		mov [font_line_height],dh
-		push es
-		push bx
-		pop dword [font]
+		mov [font.entries],eax
+		mov [font.height],dl
+		mov [font.line_height],dh
+		mov [font.baseline],cx
+		mov [font],ebx
 font_init_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write a string. '\n' is a line break.
 ;
-;  es:si	ASCIIZ string
+;  esi		string
 ;
 ; return:
 ;  cursor position gets advanced
@@ -11389,36 +11546,39 @@ font_init_90:
 ;   \x13	set link text color (gfx_color2); typically label end
 ;   \x14	start page description
 ;
+
+		bits 32
+
 text_xy:
 		xor eax,eax
-		mov [last_label],ax
-		mov [cur_row],ax
-		and [txt_state],byte ~1
+		mov [last_label],eax
+		mov [cur_row],eax
+		and byte [txt_state],~1
 
 		test byte [txt_state],2
 		jz text_xy_05
-		mov [row_start_seg],es
-		mov [row_start_ofs],si
-		mov [cur_row2],ax
-		mov [cur_link],ax
-		mov [sel_link],ax
-		mov [page_title],ax
-		push si
+
+		mov [row_text],esi
+		mov [cur_row2],eax
+		mov [cur_link],eax
+		mov [sel_link],eax
+		mov [page_title],eax
+		push esi
 		call utf8_dec
-		pop si
+		pop esi
 		call is_eot
 		jz text_xy_05
-		inc word [cur_row2]
+		inc dword [cur_row2]
 text_xy_05:
 		push word [gfx_cur_x]
 text_xy_10:
-		mov di,si
+		mov edi,esi
 		call utf8_dec
 
 		call is_eot
 		jz text_xy_90
 
-		cmp word [line_wrap],byte 0
+		cmp dword [line_wrap],0
 		jz text_xy_60
 
 		cmp eax,3000h
@@ -11428,67 +11588,87 @@ text_xy_10:
 		jnz text_xy_60
 text_xy_20:
 
-		push si
-		mov si,di
+		push esi
+		mov esi,edi
+		push edi
 		call word_width
-		pop si
-		add cx,[gfx_cur_x]
-		cmp cx,[line_wrap]
+		pop edi
+		pop esi
+		movzx edx,word [gfx_cur_x]
+		add ecx,edx
+		cmp ecx,[line_wrap]
 		jbe text_xy_60
 text_xy_30:
 		call is_space
 		jnz text_xy_50
 
-		mov di,si
+		mov edi,esi
 		call utf8_dec
 
 		call is_eot
 		jz text_xy_90
 		jmp text_xy_30
 text_xy_50:
-		mov si,di
+		mov esi,edi
 		jmp text_xy_65
 text_xy_60:
 		cmp eax,0ah
 		jnz text_xy_70
 text_xy_65:
-		mov ax,[font_line_height]
+		mov ax,[font.line_height]
 		add [gfx_cur_y],ax
 		pop ax
 		push ax
 		mov [gfx_cur_x],ax
-		inc word [cur_row]
-		mov dx,[max_rows]
-		mov ax,[cur_row]
-		or dx,dx
+		inc dword [cur_row]
+		mov edx,[max_rows]
+		mov eax,[cur_row]
+		or edx,edx
 		jz text_xy_67
-		cmp ax,dx
+		cmp eax,edx
 		jae text_xy_90
 text_xy_67:
 		test byte [txt_state],2
 		jz text_xy_10
-		cmp ax,max_text_rows
+		cmp eax,max_text_rows
 		jae text_xy_10
-		mov [cur_row2],ax
-		inc word [cur_row2]
-		add ax,ax
-		xchg ax,bx
-		mov [row_start_ofs + bx],si
+		mov [cur_row2],eax
+		inc dword [cur_row2]
+		mov [row_text+4*eax],esi
 		jmp text_xy_10
 text_xy_70:
-		push si
-		push es
+		push esi
 		cmp eax,1fh
 		jae text_xy_80
 		call text_special
-		jmp text_xy_81
+		jmp text_xy_89
 text_xy_80:
 		test byte [txt_state],1
-		jnz text_xy_81
+		jnz text_xy_89
+
+;;
+		pop esi
+		push esi
+		mov edx,eax
+		call utf8_dec
+		xchg eax,edx
+		cmp edx,0a3fh		; Sihari (Gurmukhi 'i')
+		jz text_xy_85
+		cmp edx,093fh		; (Devanagari 'i')
+		jnz text_xy_88
+text_xy_85:
+		pop edi
+		push esi
+		push eax
+		mov eax,edx
 		call char_xy
-text_xy_81:
-		pop es
-		pop si
+		pop eax
+text_xy_88:
+;;
+
+		call char_xy
+text_xy_89:
+		pop esi
 		jmp text_xy_10
 text_xy_90:
 		pop ax
@@ -11498,12 +11678,14 @@ text_xy_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Handle special chars.
 ;
 ;  eax		char
-;  es:si	ptr to next char
+;  esi		ptr to next char
 ;
+
+		bits 32
+
 text_special:
 		cmp eax,10h
 		jnz text_special_20
@@ -11529,7 +11711,7 @@ text_special_30:
 		jnz text_special_40
 
 		or byte [txt_state],1
-		mov [last_label],si
+		mov [last_label],esi
 
 		jmp text_special_90
 text_special_40:
@@ -11539,10 +11721,10 @@ text_special_40:
 		and byte [txt_state],~1
 
 		; check for selected link
-		mov bx,[sel_link]
-		shl bx,3		; sizeof_link = 8
-		mov dx,[bx+link_list+li_text]
-		cmp si,dx
+		mov ebx,[sel_link]
+		shl ebx,2
+		mov edx,[link_list+li.text+2*ebx+ebx]		; li.size = 12 (4*3)
+		cmp esi,edx
 
 		push eax
 		mov eax,[gfx_color3]
@@ -11555,28 +11737,28 @@ text_special_45:
 		test byte [txt_state],2
 		jz text_special_90
 
-		mov bx,[cur_link]
-		cmp bx,link_entries
+		mov ebx,[cur_link]
+		cmp ebx,link_entries
 		jae text_special_90
-		inc word [cur_link]
-		shl bx,3		; sizeof_link = 8
-		add bx,link_list
-		push word [last_label]
-		pop word [bx+li_label]
-		mov [bx+li_text],si
+		inc dword [cur_link]
+		shl ebx,2
+		lea ebx,[link_list+2*ebx+ebx]			; li.size = 12 (4*3)
+		push dword [last_label]
+		pop dword [ebx+li.label]
+		mov [ebx+li.text],esi
 		push word [gfx_cur_x]
-		pop word [bx+li_x]
-		mov dx,[cur_row2]
-		sub dx,1		; 0-- -> 0
-		adc dx,0
-		mov [bx+li_row],dx
+		pop word [ebx+li.x]
+		mov edx,[cur_row2]
+		sub edx,1		; 0-- -> 0
+		adc edx,0
+		mov [ebx+li.row],dx
 
 		jmp text_special_90
 text_special_50:
 		cmp eax,14h
 		jnz text_special_60
 
-		mov [page_title],si
+		mov [page_title],esi
 
 		jmp text_special_90
 text_special_60:
@@ -11587,22 +11769,22 @@ text_special_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; String width until end of next word.
 ;
-; string width until end of next word
-;
-;  es:si	ASCIIZ string
+;  esi		string
 ;
 ; return:
-;  cx		width
+;  ecx		width
 ;
-word_width:
-		push es
-		push si
-		push ax
 
-		xor dx,dx
-		mov bl,0
-		mov bh,0
+		bits 32
+
+word_width:
+		push esi
+		push eax
+
+		xor edx,edx
+		xor ebx,ebx
 
 word_width_10:
 		call utf8_dec
@@ -11616,8 +11798,7 @@ word_width_20:
 
 		cmp eax,10h
 		jnz word_width_30
-		mov bh,0
-		mov bl,0
+		xor ebx,ebx
 word_width_30:
 		cmp eax,11h
 		jnz word_width_31
@@ -11641,18 +11822,16 @@ word_width_34:
 		jnz word_width_70
 
 		push eax
-		push bx
-		push dx
-		push si
-		push es
+		push ebx
+		push edx
+		push esi
 		call char_width
-		pop es
-		pop si
-		pop dx
-		pop bx
+		pop esi
+		pop edx
+		pop ebx
 		pop eax
 
-		add dx,cx
+		add edx,ecx
 
 word_width_70:
 		call is_space
@@ -11660,7 +11839,7 @@ word_width_70:
 
 		call utf8_dec
 
-		or bx,bx
+		or ebx,ebx
 		jnz word_width_80
 		cmp eax,3000h
 		jae word_width_90
@@ -11670,16 +11849,14 @@ word_width_80:
 		jnz word_width_20
 
 word_width_90:
-		mov cx,dx
+		mov ecx,edx
 
-		pop ax
-		pop si
-		pop es
+		pop eax
+		pop esi
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Test for white space (space or tab).
 ;
 ;  eax		char
@@ -11687,6 +11864,9 @@ word_width_90:
 ; return:
 ;  ZF		0 = no, 1 = yes
 ;
+
+		bits 32
+
 is_space:
 		cmp eax,20h
 		jz is_space_90
@@ -11696,14 +11876,16 @@ is_space_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Test for end of text.
 ;
-;  eax		char
+; eax		char
 ;
 ; return:
 ;  ZF		0 = no, 1 = yes
 ;
+
+		bits 32
+
 is_eot:
 		or eax,eax
 		jz is_eot_90
@@ -11713,36 +11895,38 @@ is_eot_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get string dimensions (in pixel).
 ;
-;  es:si	ASCIIZ string
+;  esi		string
 ;
 ; return:
-;  cx		width
-;  dx		height
+;  ecx		width
+;  edx		height
 ;
+
+		bits 32
+
 str_size:
-		xor cx,cx
-		xor dx,dx
+		xor ecx,ecx
+		xor edx,edx
 str_size_20:
-		push cx
-		push dx
+		push ecx
+		push edx
 		call str_len
-		xchg ax,cx
-		pop dx
-		pop cx
-		cmp ax,cx
+		xchg eax,ecx
+		pop edx
+		pop ecx
+		cmp eax,ecx
 		jb str_size_40
-		mov cx,ax
+		mov ecx,eax
 str_size_40:
-		inc dx
+		inc edx
 
 		; suppress final line break
 		call utf8_dec
 		cmp eax,0ah
 		jnz str_size_60
-		cmp byte [es:si],0
+		cmp byte [es:esi],0
 		jz str_size_80
 str_size_60:
 		or eax,eax
@@ -11751,33 +11935,35 @@ str_size_60:
 		jz str_size_80
 		jmp str_size_20
 str_size_80:
-		dec dx
-		mov ax,[font_line_height]
-		mul dx
-		mov dx,[font_height]
-		add dx,ax
+		dec edx
+		movzx eax,word [font.line_height]
+		mul edx
+		movzx edx,word [font.height]
+		add edx,eax
 str_size_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get string length (in pixel).
 ; *** Use str_size instead. ***
 ;
-;  es:si	ASCIIZ string
+;  esi		string
 ;
 ; return:
-;  cx		width
-;  es:si	points to string end or line break
+;  ecx		width
+;  esi		points to string end or line break
 ;
 ; notes:
 ;  - stops at linebreak ('\n')
 ;
+
+		bits 32
+
 str_len:
-		xor cx,cx
+		xor ecx,ecx
 str_len_10:
-		mov di,si
+		mov edi,esi
 		call utf8_dec
 		or eax,eax
 		jz str_len_70
@@ -11785,69 +11971,69 @@ str_len_10:
 		jz str_len_70
 		cmp eax,0ah
 		jz str_len_70
-		push cx
-		push si
-		push es
+		push ecx
+		push esi
 		call char_width
-		pop es
-		pop si
-		pop ax
-		add cx,ax
+		pop esi
+		pop eax
+		add ecx,eax
 		jmp str_len_10
 str_len_70:
-		mov si,di
+		mov esi,edi
 		ret
 
 
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Decode next utf8 char.
 ;
-;  es:si	string
+;  esi		string
 ;
 ; return:
-;  eax		char	(invalid char: 0)
+;  eax		char (invalid char: 0)
+;  esi		points past char
 ;
-;  Note: changes only: eax, si
+; Note: changes only eax, esi
 ;
+
+		bits 32
+
 utf8_dec:
 		xor eax,eax
 		es lodsb
 		cmp al,80h
 		jb utf8_dec_90
 
-		push cx
+		push ecx
 		push edx
 
 		xor edx,edx
-		xor cx,cx
+		xor ecx,ecx
 		mov dl,al
 
 		cmp al,0c0h		; invalid
 		jb utf8_dec_70
 
-		inc cx			; 2 bytes
+		inc ecx			; 2 bytes
 		and dl,1fh
 		cmp al,0e0h
 		jb utf8_dec_10
 
-		inc cx			; 3 bytes
+		inc ecx			; 3 bytes
 		and dl,0fh
 		cmp al,0f0h
 		jb utf8_dec_10
 
-		inc cx			; 4 bytes
+		inc ecx			; 4 bytes
 		and dl,7
 		cmp al,0f8h
 		jb utf8_dec_10
 
-		inc cx			; 5 bytes
+		inc ecx			; 5 bytes
 		and dl,3
 		cmp al,0fch
 		jb utf8_dec_10
 
-		inc cx			; 6 bytes
+		inc ecx			; 6 bytes
 		and dl,1
 		cmp al,0feh
 		jae utf8_dec_70
@@ -11860,7 +12046,7 @@ utf8_dec_10:
 		and al,3fh
 		shl edx,6
 		or dl,al
-		dec cx
+		dec ecx
 		jnz utf8_dec_10
 		xchg eax,edx
 		jmp utf8_dec_80
@@ -11869,34 +12055,36 @@ utf8_dec_70:
 		xor eax,eax
 utf8_dec_80:
 		pop edx
-		pop cx
+		pop ecx
 
 utf8_dec_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Encode utf8 char.
 ;
 ;  eax		char
 ;
 ; return:
-;  cx		length
+;  ecx		length
 ;  utf8_buf	char
 ;
+
+		bits 32
+
 utf8_enc:
-		mov si,utf8_buf
-		xor cx,cx
-		xor dx,dx
+		mov esi,utf8_buf
+		xor ecx,ecx
+		xor edx,edx
 
 		cmp eax,80h
 		jae utf8_enc_10
-		mov [si],al
-		inc si
+		mov [esi],al
+		inc esi
 		jmp utf8_enc_80
 utf8_enc_10:
-		inc cx
+		inc ecx
 		cmp eax,800h
 		jae utf8_enc_20
 		shl eax,21
@@ -11905,7 +12093,7 @@ utf8_enc_10:
 		shl eax,5
 		jmp utf8_enc_60
 utf8_enc_20:
-		inc cx
+		inc ecx
 		cmp eax,10000h
 		jae utf8_enc_30
 		shl eax,16
@@ -11914,7 +12102,7 @@ utf8_enc_20:
 		shl eax,4
 		jmp utf8_enc_60
 utf8_enc_30:
-		inc cx
+		inc ecx
 		cmp eax,200000h
 		jae utf8_enc_40
 		shl eax,11
@@ -11923,7 +12111,7 @@ utf8_enc_30:
 		shl eax,3
 		jmp utf8_enc_60
 utf8_enc_40
-		inc cx
+		inc ecx
 		cmp eax,4000000h
 		jae utf8_enc_50
 		shl eax,6
@@ -11932,32 +12120,31 @@ utf8_enc_40
 		shl eax,2
 		jmp utf8_enc_60
 utf8_enc_50:
-		inc cx
+		inc ecx
 		shl eax,1
 		mov dl,7eh
 		shld edx,eax,1
 		add eax,eax
 utf8_enc_60:
-		mov bx,cx
-		mov [si],dl
-		inc si
+		mov ebx,ecx
+		mov [esi],dl
+		inc esi
 utf8_enc_70:
 		mov dl,2
 		shld edx,eax,6
 		shl eax,6
-		mov [si],dl
-		inc si
-		dec bx
+		mov [esi],dl
+		inc esi
+		dec ebx
 		jnz utf8_enc_70
 utf8_enc_80:
-		mov byte [si],0
-		inc cx
+		mov byte [esi],0
+		inc ecx
 utf8_enc_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Write a char at the current cursor position.
 ;
 ;  eax		char
@@ -11965,7 +12152,13 @@ utf8_enc_90:
 ; return:
 ;  cursor position gets advanced
 ;
+
+		bits 32
+
 char_xy:
+		push fs
+		push gs
+
 		cmp eax,1fh			; \x1f looks like a space, but isn't
 		jnz char_xy_10
 		mov al,' '
@@ -11976,156 +12169,435 @@ char_xy_10:
 		test byte [txt_state],2		; don't actually write
 		jnz char_xy_80
 
+		cmp word [chr.bitmap_width],0
+		jz char_xy_80
+		cmp word [chr.bitmap_height],0
+		jz char_xy_80
+
+		mov dl,[chr.type]
+		or dl,dl
+		jnz char_xy_30
+		call char0_xy
+		jmp char_xy_80
+char_xy_30:
+		cmp dl,1
+		jnz char_xy_80
+		call char1_xy
+
+char_xy_80:
+		mov cx,[chr.x_advance]
+		add [gfx_cur_x],cx
+char_xy_90:
+		pop gs
+		pop fs
+		ret
+
+
+char0_xy:
 		push word [gfx_cur_x]
 		push word [gfx_cur_y]
 
-		mov cx,[chr_x_ofs]
-		add [gfx_cur_x],cx
+		mov ax,[chr.x_ofs]
+		add [gfx_cur_x],ax
 
-		mov dx,[chr_y_ofs]
-		add [gfx_cur_y],dx
+		mov ax,[font.height]
+		sub ax,[font.baseline]
+		sub ax,[chr.y_ofs]
+		sub ax,[chr.bitmap_height]
+		add [gfx_cur_y],ax
 
 		call goto_xy
-
 		call screen_segs
 
-		lgs si,[font]
-		add si,[chr_bitmap]
+		mov ebx,[chr.data]
+		mov esi,[chr.bitmap]
 
-		cmp byte [chr_real_width],0
-		jz char_xy_70
-		cmp byte [chr_real_height],0
-		jz char_xy_70
-
-		xor dx,dx
-		xor bp,bp
-
-char_xy_20:
-		xor cx,cx
-char_xy_30:
-		bt [gs:si],bp
-		jnc char_xy_40
+		xor edx,edx
+char0_xy_20:
+		xor ecx,ecx
+char0_xy_30:
+		bt [es:ebx],esi
+		jnc char0_xy_40
 		mov ax,[gfx_cur_x]
 		add ax,cx
 		cmp ax,[clip_r]
-		jge char_xy_40
+		jge char0_xy_40
 		cmp ax,[clip_l]
-		jl char_xy_40
+		jl char0_xy_40
 		call [setpixel_t]
-char_xy_40:
-		inc bp
+char0_xy_40:
+		inc esi
 		add di,[pixel_bytes]
-		jnc char_xy_50
+		jnc char0_xy_50
 		call inc_winseg
-char_xy_50:
-		inc cx
-		cmp cx,[chr_real_width]
-		jnz char_xy_30
+char0_xy_50:
+		inc ecx
+		cmp cx,[chr.bitmap_width]
+		jnz char0_xy_30
 
 		mov ax,[screen_line_len]
-		mov bx,[chr_real_width]
-		imul bx,[pixel_bytes]
-		sub ax,bx
+		mov bp,[chr.bitmap_width]
+		imul bp,[pixel_bytes]
+		sub ax,bp
 		add di,ax
-		jnc char_xy_60
+		jnc char0_xy_60
 		call inc_winseg
-char_xy_60:
-		inc dx
-		cmp dx,[chr_real_height]
-		jnz char_xy_20
-
-char_xy_70:
+char0_xy_60:
+		inc edx
+		cmp dx,[chr.bitmap_height]
+		jnz char0_xy_20
 
 		pop word [gfx_cur_y]
 		pop word [gfx_cur_x]
 
-char_xy_80:
-		mov cx,[chr_width]
-		add [gfx_cur_x],cx
+		ret
 
-char_xy_90:
+
+char1_xy:
+		push word [gfx_cur_x]
+		push word [gfx_cur_y]
+
+		call char1_unpack
+		jc char1_xy_90
+
+		mov ax,[chr.x_ofs]
+		add [gfx_cur_x],ax
+
+		mov ax,[font.height]
+		sub ax,[font.baseline]
+		sub ax,[chr.y_ofs]
+		sub ax,[chr.bitmap_height]
+		add [gfx_cur_y],ax
+
+		; save_bg does not clip, do it here (sort of)
+		mov ax,[gfx_cur_x]
+		cmp ax,[clip_r]
+		jge char1_xy_20
+		add ax,[chr.bitmap_width]
+		cmp ax,[clip_l]
+		jl char1_xy_20
+
+		mov edi,[chr.pixel_buf]
+		mov dx,[es:edi]
+		mov cx,[es:edi+2]
+		add edi,4
+		call save_bg
+
+char1_xy_20:
+
+		push dword [transp]
+
+		mov edi,[chr.pixel_buf]
+		mov esi,[chr.buf]
+		mov ax,[es:edi]
+		mul word [es:edi+2]
+		movzx ecx,ax
+		add edi,4
+		add esi,4
+
+		mov eax,[gfx_color]
+		call decode_color
+		mov [tmp_var_0],eax
+
+char1_xy_30:
+		push ecx
+
+		movzx eax,byte [es:esi]
+		inc esi
+		mov [transp],eax
+		mov ecx,[tmp_var_0]
+
+		cmp dword [pixel_bytes],2
+		jnz char1_xy_40
+
+		mov ax,[es:edi]
+		call decode_color
+		call enc_transp
+		call encode_color
+		mov [es:edi],ax
+
+		jmp char1_xy_60
+char1_xy_40:
+
+		mov eax,[es:edi]
+		call enc_transp
+		mov [es:edi],eax
+
+char1_xy_60:
+		pop ecx
+		add edi,[pixel_bytes]
+		dec ecx
+		jnz char1_xy_30
+
+		pop dword [transp]
+
+		mov edi,[chr.pixel_buf]
+		mov dx,[es:edi]
+		mov cx,[es:edi+2]
+		add edi,4
+		mov bx,dx
+		imul bx,[pixel_bytes]
+		call restore_bg
+
+char1_xy_90:
+		pop word [gfx_cur_y]
+		pop word [gfx_cur_x]
+
+		ret
+
+
+char1_unpack:
+		mov ax,[chr.bitmap_width]
+		mul word [chr.bitmap_height]
+		movzx eax,ax
+		mov ebp,eax
+		mov ebx,eax
+		imul ebx,[pixel_bytes]
+		add eax,4
+		add ebx,4
+		cmp eax,[chr.buf_len]
+		jb char1_unpack_10
+		push ebp
+		push ebx
+		push eax
+		mov eax,[chr.buf]
+		call free
+		mov eax,[chr.pixel_buf]
+		call free
+		xor eax,eax
+		mov [chr.buf],eax
+		mov [chr.pixel_buf],eax
+		mov [chr.buf_len],eax
+		pop eax
+		push eax
+		call calloc
+		pop ecx
+		pop ebx
+		pop ebp
+		or eax,eax
+		stc
+		jz char1_unpack_90
+		mov [chr.buf_len],ecx
+		mov [chr.buf],eax
+		mov eax,ebx
+		push ebp
+		call calloc
+		pop ebp
+		or eax,eax
+		stc
+		jz char1_unpack_90
+		mov [chr.pixel_buf],eax
+char1_unpack_10:
+		mov edi,[chr.buf]
+		mov esi,[chr.pixel_buf]
+
+		mov cx,[chr.bitmap_width]
+		mov [es:edi],cx
+		mov [es:esi],cx
+		mov cx,[chr.bitmap_height]
+		mov [es:edi+2],cx
+		mov [es:esi+2],cx
+
+		add edi,4
+
+		; ebp: pixel
+
+		mov ebx,[chr.data]
+		mov esi,[chr.bitmap]
+
+char1_unpack_20:
+		push ebp
+		push edi
+		mov cl,cbm_gray_bits
+		call get_u_bits
+		pop edi
+		pop ebp
+
+		cmp al,cbm_max_gray
+		ja char1_unpack_30
+		mov al,[chr.gray_values + eax]
+		stosb
+		dec ebp
+		jnz char1_unpack_20
+		jmp char1_unpack_80
+char1_unpack_30:
+		mov dl,[chr.gray_values + 0]
+		cmp al,cbm_rep_white
+		jnz char1_unpack_40
+		mov dl,[chr.gray_values + cbm_max_gray]
+char1_unpack_40:
+		push edx
+		push ebp
+		push edi
+		mov cl,cbm_gray_bit_count
+		call get_u_bits
+		pop edi
+		pop ebp
+		pop edx
+		add al,3
+		xchg dl,al
+char1_unpack_50:
+		stosb
+		dec ebp
+		jz char1_unpack_80
+		dec dl
+		jnz char1_unpack_50
+		jmp char1_unpack_20
+char1_unpack_80:
+		clc
+
+char1_unpack_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read bits and convert to unsigned int.
 ;
+; ebx		buffer
+; esi		bit offset
+; cl		bits
+;
+; return:
+;  eax		(unsigned) number
+;  ebx		buffer
+;  esi		updated bit offset
+;  ecx		bits
+;
+get_u_bits:
+		movzx ecx,cl
+		mov edi,esi
+		mov ebp,esi
+		add esi,ecx
+		shr edi,3
+		and ebp,7
+		mov eax,[es:ebx+edi]
+		xchg ecx,ebp
+		mov edx,[es:ebx+edi+4]
+		shrd eax,edx,cl
+		xchg ecx,ebp
+		cmp ecx,32
+		jae get_u_bits_90
+		mov ebp,1
+		shl ebp,cl
+		dec ebp
+		and eax,ebp
+get_u_bits_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read bits and convert to signed int.
+;
+; ebx		buffer
+; esi		bit offset
+; cl		bits
+;
+; return:
+;  eax		(signed) number
+;  ebx		buffer
+;  esi		updated bit offset
+;  ecx		bits
+;
+get_s_bits:
+		call get_u_bits
+		or ecx,ecx
+		jz get_s_bits_90
+		dec ecx
+		mov ebp,1
+		shl ebp,cl
+		inc ecx
+		test eax,ebp
+		jz get_s_bits_90
+		xor ebp,ebp
+		dec ebp
+		shl ebp,cl
+		add eax,ebp
+get_s_bits_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ; Look for char in font.
 ;
 ;  eax		char
 ;
 ; return:
 ;  CF		0 = found, 1 = not found
-;  [chr_*]	updated
+;  [chr.*]	updated
 ;
+
+		bits 32
+
 find_char:
 		and eax,1fffffh
 		push eax
-		cmp dword [font],byte 0
+		cmp dword [font],0
 		stc
 		jz find_char_90
 
-		test byte [font_properties],1
+		test byte [font.properties],1
 		jz find_char_10
 		mov eax,'*'
 find_char_10:
 
-		les bx,[font]
-		add bx,sizeof_font_header_t
-		mov cx,[font_entries]
+		mov ebx,[font]
+		add ebx,foh.size
+		mov ecx,[font.entries]
+
+		; do a binary search for char
 
 find_char_20:
-		mov si,cx
-		shr si,1
+		mov esi,ecx
+		shr esi,1
 
-		shl si,3
-		mov edx,[es:bx+si+ch_c]
-		and edx,1fffffh		; 21 bits
+		lea esi,[esi+4*esi]			; offset table has 5-byte entries
+		mov edx,[es:ebx+esi]
+		and edx,1fffffh				; 21 bits
 		cmp eax,edx
 
 		jz find_char_80
 
 		jl find_char_50
 
-		add bx,si
+		add ebx,esi
 		test cl,1
 		jz find_char_50
-		add bx,sizeof_char_header_t
+		add ebx,5				; offset table has 5-byte entries
 find_char_50:
-		shr cx,1
+		shr ecx,1
 		jnz find_char_20
 
 		stc
 		jmp find_char_90
 
 find_char_80:
-		mov dx,[es:bx+si+ch_ofs]
-		mov [chr_bitmap],dx
-		mov edx,[es:bx+si+ch_size]
+		mov edx,[es:ebx+esi+1]
+		shr edx,13				; 19 bit offset
+		add edx,[font]
+		mov [chr.data],edx
 
-		shr edx,5
-		mov cl,dl
-		and cl,01fh
-		mov [chr_x_ofs],cl
+		mov ebx,edx
+		xor esi,esi
+		mov cl,2
+		call get_u_bits
+		mov [chr.type],al
+		mov cl,3
+		call get_u_bits
+		mov cl,al
+		inc cl
 
-		shr edx,5
-		mov cl,dl
-		and cl,01fh
-		mov [chr_y_ofs],cl
+		call get_u_bits
+		mov [chr.bitmap_width],ax
+		call get_u_bits
+		mov [chr.bitmap_height],ax
+		call get_s_bits
+		mov [chr.x_ofs],ax
+		call get_s_bits
+		mov [chr.y_ofs],ax
+		call get_s_bits
+		mov [chr.x_advance],ax
 
-		shr edx,5
-		mov cl,dl
-		and cl,01fh
-		mov [chr_real_width],cl
-
-		shr edx,5
-		mov cl,dl
-		and cl,01fh
-		mov [chr_real_height],cl
-
-		shr edx,5
-		mov cl,dl
-		and cl,01fh
-		mov [chr_width],cl
+		mov [chr.bitmap],esi
 
 		clc
 find_char_90:
@@ -12134,15 +12606,17 @@ find_char_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; 
 ; Get char width.
 ;
 ;  eax		char
 ;
 ; return:
 ;  eax		char
-;  cx		char width
+;  ecx		char width
 ;
+
+		bits 32
+
 char_width:
 		push eax
 		cmp eax,1fh		; \x1f looks like a space, but isn't
@@ -12150,17 +12624,16 @@ char_width:
 		mov al,' '
 char_width_10:
 		call find_char
-		mov cx,0
+		mov ecx,0
 		jc char_width_90
-		mov cx,[chr_width]
+		movsx ecx,word [chr.x_advance]
 char_width_90:
 		pop eax
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Write a char at the current console cursor position.
+; Write char at the current console cursor position.
 ;
 ;  al		char
 ;  ebx		color
@@ -12168,7 +12641,13 @@ char_width_90:
 ; return:
 ;  console cursor position gets advanced
 ;
+
+		bits 32
+
 con_char_xy:
+		push fs
+		push gs
+
 		push dword [gfx_color]
 
 		push word [gfx_cur_x]
@@ -12183,44 +12662,45 @@ con_char_xy:
 		pop word [gfx_cur_y]
 
 		call goto_xy
-
 		call screen_segs
 
-		lgs si,[cfont]
+		mov esi,[cfont.lin]
+
+		movzx eax,al
 
 		mul byte [cfont_height]
-		add si,ax
+		add esi,eax
 
-		xor dx,dx
+		xor edx,edx
 
 con_char_xy_20:
-		mov cx,7
+		mov ecx,7
 con_char_xy_30:
-		bt [gs:si],cx
+		bt [es:esi],ecx
 		mov eax,[gfx_color]
 		jc con_char_xy_40
-		xor  eax,eax
+		xor eax,eax
 con_char_xy_40:
 		call [setpixel_a]
 		add di,[pixel_bytes]
 		jnc con_char_xy_50
 		call inc_winseg
 con_char_xy_50:
-		dec cx
+		dec ecx
 		jns con_char_xy_30
 
-		inc si
+		inc esi
 
-		mov ax,[screen_line_len]
-		mov bx,8
-		imul bx,[pixel_bytes]
-		sub ax,bx
+		mov eax,[screen_line_len]
+		mov ebx,[pixel_bytes]
+		shl ebx,3
+		sub eax,ebx
 		add di,ax
 		jnc con_char_xy_60
 		call inc_winseg
 con_char_xy_60:
-		inc dx
-		cmp dx,[cfont_height]
+		inc edx
+		cmp edx,[cfont_height]
 		jnz con_char_xy_20
 
 		add word [con_x],8
@@ -12230,27 +12710,27 @@ con_char_xy_60:
 
 		pop dword [gfx_color]
 
+		pop gs
+		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get some memory for palette data
 ;
+
+		bits 32
+
 pal_init:
 		mov eax,300h
 		call calloc
-		push eax
-		call lin2so
-		pop dword [gfx_pal]
+		mov [gfx_pal],eax
 		or eax,eax
 		stc
 		jz pal_init_90
 		mov eax,300h
 		call calloc
-		push eax
-		call lin2so
-		pop dword [gfx_pal_tmp]
+		mov [gfx_pal_tmp],eax
 		or eax,eax
 		stc
 		jz pal_init_90
@@ -12260,353 +12740,74 @@ pal_init_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Load palette data.
 ;
-; cx		number of palettes
-; dx		start
+; ecx		number of palette entries
+; edx		start entry
 ;
-load_palette:
-		push fs
 
+		bits 32
+
+load_palette:
 		cmp byte [pixel_bytes],1
 		ja load_palette_90
 
-		cmp dx,100h
+		cmp edx,100h
 		jae load_palette_90
 
-		mov ax,dx
-		add ax,cx
-		sub ax,100h
+		mov eax,edx
+		add eax,ecx
+		sub eax,100h
 		jbe load_palette_10
-		sub cx,ax
+		sub ecx,eax
 load_palette_10:
-		or cx,cx
+		or ecx,ecx
 		jz load_palette_90
 
-		mov ax,dx
-		add ax,dx
-		add ax,dx
+		lea ebp,[edx+2*edx]
 
-		push dx
-		push cx
+		mov ebx,edx
+		push ecx
 
 		; vga function wants 6 bit values
 
-		lfs si,[gfx_pal]
-		les di,[gfx_pal_tmp]
-		add si,ax
-		add di,ax
+		mov esi,[gfx_pal]
+		mov edi,[gfx_pal_tmp]
 
-		imul cx,cx,3
-		mov dx,di
-		push dx
+		add esi,ebp
+		add edi,ebp
+
+		lea ecx,[ecx+2*ecx]
+
 load_palette_50:
-		fs lodsb
-		mov ah,0
-		mul word [brightness]
-		shr ax,10
+		es lodsb
+		shr al,2
 		stosb
 		loop load_palette_50
 
-		pop dx
-		pop cx
-		pop bx
+		pop ecx
 
+		mov edx,[gfx_pal_tmp]
+		add edx,ebp
 
-%if 0
-		mov si,dx
-		mov dx,3dah
-		cli
-load_palette_60:
-		in al,dx
-		test al,8
-		jnz load_palette_60
-load_palette_70:
-		in al,dx
-		test al,8
-		jz load_palette_70
-		cli
-		imul cx,cx,3
-		mov dx,3c8h
-		xchg ax,bx
-		out dx,al
-		inc dx
-		es rep outsb
-		sti
-%else
+		mov eax,edx
+		and edx,0fh
+		shr eax,4
+
+		; check seg value
+		cmp eax,10000h
+		jae load_palette_90
+
+		mov [rm_seg.es],ax
+
 		mov ax,1012h
 		int 10h
-%endif
 
 load_palette_90:
-		pop fs
-		ret
-
-
-; es:bx		colors
-; ax		ref color
-;
-fade_in:
-		xor bp,bp
-
-fade_in_20:
-		push bx
-		push ax
-
-		mov dx,3dah
-fade_in_30:
-		in al,dx
-		test al,8
-		jnz fade_in_30
-fade_in_40:
-		in al,dx
-		test al,8
-		jz fade_in_40
-
-		pop ax
-		pop bx
-
-		push bx
-		push ax
-		call fade_one
-		pop ax
-		pop bx
-
-		add bp,4
-
-		cmp bp,100h
-		jbe fade_in_20
-
-		ret
-
-
-; es:bx		colors
-; ax		ref color
-; bp		step (0 - 100h)
-;
-fade_one:
-		push fs
-
-		lfs si,[gfx_pal]
-		mov di,si
-		imul ax,ax,3
-		add di,ax
-
-		mov dx,3c8h
-		xor cx,cx
-fade_one_30:
-		cmp byte [es:bx],0
-		jz fade_one_70
-
-		mov al,cl
-		out dx,al
-
-		inc dx
-
-		mov al,[fs:di]
-		mov ah,[fs:si]
-		call fade_it
-		shr al,2
-		out dx,al
-
-		mov al,[fs:di+1]
-		mov ah,[fs:si+1]
-		call fade_it
-		shr al,2
-		out dx,al
-
-		mov al,[fs:di+2]
-		mov ah,[fs:si+2]
-		call fade_it
-		shr al,2
-		out dx,al
-
-		dec dx
-fade_one_70:
-		inc bx
-		add si,3
-		inc cx
-		cmp cx,100h
-		jb fade_one_30
-
-fade_one_90:
-		pop fs
-		ret
-
-
-; al		old color
-; ah		new color
-; bp		step (0 - 100h)
-;
-; return:
-;  al		color
-fade_it:
-		push cx
-		push dx
-		push bp
-
-		push ax
-		movzx ax,ah
-		mul bp
-		mov cx,ax
-		sub bp,100h
-		neg bp
-		pop ax
-		mov ah,0
-		mul bp
-		add ax,cx
-		mov al,ah
-
-		pop bp
-		pop dx
-		pop cx
-		ret
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-parse_img:
-		push fs
-		mov eax,[pcx_line_starts]
-		or eax,eax
-		jz parse_img_10
-		pm_enter 32
-		call free
-		pm_leave 32 
-parse_img_10:
-		movzx eax,word [image_height]
-		shl eax,2
-		call calloc
-		or eax,eax
-		stc
-		mov [pcx_line_starts],eax
-		jz parse_img_90
-		lin2segofs eax,es,di
-		lfs si,[image_data]
-
-		xor dx,dx		; y count
-
-parse_img_20:
-		xor cx,cx		; x count
-		mov [es:di],si
-		mov [es:di+2],fs
-		add di,4
-parse_img_30:
-		fs lodsb
-		cmp al,0c0h
-		jb parse_img_40
-		and ax,3fh
-		inc si
-		add cx,ax
-		dec cx
-parse_img_40:
-		inc cx
-		cmp cx,[image_width]
-		jb parse_img_30
-		stc
-		jnz parse_img_90		; no decoding break at line end?
-
-		; normalize fs:si
-		mov bp,si
-		and si,0fh
-		shr bp,4
-		mov ax,fs
-		add ax,bp
-		mov fs,ax
-
-		inc dx
-		cmp dx,[image_height]
-		jb parse_img_20
-
-parse_img_90:
-		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; cx		colors
-; dx		src
-; bx		dst
-;
-tint:
-		push fs
-
-		; ensure we don't exceed bounds
-		cmp dx,100h
-		jae tint_90
-		cmp bx,100h
-		jae tint_90
-
-		mov ax,dx
-		cmp dx,bx
-		jae tint_10
-		mov ax,bx
-tint_10:
-		add ax,cx
-		sub ax,100h
-		jb tint_20
-		sub cx,ax
-tint_20:
-		or cx,cx
-		jz tint_90
-
-		lfs si,[gfx_pal]
-		les di,[gfx_pal_tmp]
-
-		imul ax,dx,3
-		add si,dx
-		imul ax,bx,3
-		add di,ax
-		imul cx,cx,3
-		push ax
-		push cx
-
-		xor bx,bx
-
-tint_40:
-		movzx ax,byte [gfx_cs_r + bx]
-		fs movzx bp,byte [si]
-		inc si
-		sub ax,bp
-		push bp
-		movzx dx,byte [gfx_cs_tint_r + bx]
-		imul dx
-		mov bp,0ffh		; 100
-		idiv bp
-		pop bp
-		add ax,bp
-		jns tint_50
-		xor ax,ax
-tint_50:
-		or ah,ah
-		jz tint_60
-		mov ax,0ffh
-tint_60:
-		stosb
-		inc bx
-		cmp bx,3
-		jb tint_70
-		xor bx,bx
-tint_70:
-		loop tint_40
-
-		pop cx
-		pop ax
-
-		lfs si,[gfx_pal_tmp]
-		les di,[gfx_pal]
-
-		add di,ax
-		add si,ax
-		fs rep movsb
-tint_90:
-		pop fs
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Clip drawing area.
 ;
 ;  [gfx_cur_x]		left border
@@ -12621,6 +12822,9 @@ tint_90:
 ;
 ;  Changed registers: -
 ;
+
+		bits 32
+
 clip_it:
 		pusha
 
@@ -12670,59 +12874,61 @@ clip_it_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; save a screen region
+; Save screen region.
 ;
-;		dx,cx	= width, height
-;		edi	= buffer (linear address)
+;  dx, cx	width, height
+;  edi		buffer
 ;
 ; Note: ensure we only make aligned dword reads from video memory. Else some
 ; ATI 7000 boards will make problems (computer hangs).
 ; As an added bonus, it really speeds things up.
 ;
+
+		bits 32
+
 save_bg:
 		push fs
+		push gs
 
 		push edi
 
 		call goto_xy
+		mov esi,edi
 
-		call screen_seg_r
+		pop edi
 
-		mov si,di
-		pop ebx
+		call screen_segs
 
-		or cx,cx
+		movzx ecx,cx
+		movzx edx,dx
+
+		or ecx,ecx
 		jz save_bg_90
-		or dx,dx
+		or edx,edx
 		jz save_bg_90
 
 		imul dx,[pixel_bytes]
 
 save_bg_10:
-		lin2seg ebx,es,edi
+		push ecx
+		push edx
 
-		push cx
-
-		push dx
-
-		mov bp,si
-		mov cx,si
-		and bp,~3
-		and cx,3
+		mov ebp,esi
+		mov ecx,esi
+		and ebp,~3
+		and ecx,3
 
 		jz save_bg_30
 
-		shl cx,3
-		mov eax,[fs:bp]
+		shl ecx,3
+		mov eax,[fs:ebp]
 		shr eax,cl
 
 save_bg_20:
-		mov [es:edi],al
-		inc ebx
-		inc edi
+		stosb
 		inc si
 		shr eax,8
-		dec dx
+		dec edx
 		; ensure ch = 0
 		jz save_bg_70
 		add cl,8
@@ -12731,85 +12937,69 @@ save_bg_20:
 
 		or si,si
 		jnz save_bg_30
-		call lin_seg_off
 		call inc_winseg
-		lin2seg ebx,es,edi
-
 save_bg_30:
-		mov eax,[fs:si]
+		mov eax,[fs:esi]
 		add si,4
 		jnz save_bg_35
-		call lin_seg_off
 		call inc_winseg
-		lin2seg ebx,es,edi
 save_bg_35:
-		cmp dx,4
+		cmp edx,4
 		jb save_bg_50
-		mov [es:edi],eax
-		add ebx,4
-		add di,4
-		jnc save_bg_40
-		lin2seg ebx,es,edi
-save_bg_40:
-		sub dx,4
+		stosd
+		sub edx,4
 		; ch = 0
 		jz save_bg_70
 		jmp save_bg_30
 save_bg_50:
-		mov cx,4
-		sub cx,dx
+		mov ecx,4
+		sub ecx,edx
 		sub si,cx
 		; don't switch bank later: we've already done it
 		setc ch
-		cmp di,-4
-		jbe save_bg_60
-		lin2seg ebx,es,edi
 save_bg_60:
-		mov [es:edi],al
-		inc ebx
-		inc edi
+		stosb
 		shr eax,8
-		dec dx
+		dec edx
 		jnz save_bg_60
 
 save_bg_70:
+		pop edx
 
-		pop dx
-		mov ax,[screen_line_len]
-		sub ax,dx
+		mov eax,[screen_line_len]
+		sub eax,edx
 		add si,ax
 		jnc save_bg_80
-		call lin_seg_off
 		or ch,ch
-		jnz save_bg_75
+		jnz save_bg_80
 		call inc_winseg
-save_bg_75:
-		lin2seg ebx,es,edi
 save_bg_80:
-		pop cx
+		pop ecx
 
-		dec cx
+		dec ecx
 		jnz save_bg_10
 
 save_bg_90:
-
-		call lin_seg_off
-
+		pop gs
 		pop fs
 		ret
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Restore screen region.
 ;
-; Restore a screen region.
-;
-;  dx,cx	width, height
+;  dx, cx	width, height
 ;  bx		bytes per line
-;  edi		buffer (linear address)
+;  edi		buffer
 ;
 ; Does not change cursor positon.
 ;
+
+		bits 32
+
 restore_bg:
 		push fs
+		push gs
 
 		push dword [gfx_cur]
 
@@ -12834,162 +13024,137 @@ restore_bg:
 		imul ecx,ebx
 		add ecx,ebp
 
-		lea ebp,[edi+ecx]
+		lea esi,[edi+ecx]
 
-		mov dx,[gfx_width]
-		mov cx,[gfx_height]
+		movzx edx,word [gfx_width]
+		movzx ecx,word [gfx_height]
 
 		call goto_xy
+		call screen_segs
 
-		call screen_seg_w
-
-		push es
-		pop fs
-		mov si,di
-		
-		imul dx,[pixel_bytes]
-
-		lin2seg ebp,es,edi
+		imul edx,[pixel_bytes]
 
 restore_bg_20:
-		push dx
+		push edx
+
 restore_bg_30:
-		mov al,[es:edi]
-		inc ebp
+		es lodsb
+		mov [gs:edi],al
 		inc di
-		jnz restore_bg_40
-		lin2seg ebp,es,edi
-restore_bg_40:
-		mov [fs:si],al
-		inc si
 		jnz restore_bg_50
-		call lin_seg_off
 		call inc_winseg
-		lin2seg ebp,es,edi
 restore_bg_50:
-		dec dx
+		dec edx
 		jnz restore_bg_30
-		pop dx
-		mov ax,[screen_line_len]
-		sub ax,dx
-		add si,ax
-		jnc restore_bg_60
-		call lin_seg_off
-		call inc_winseg
-		lin2seg ebp,es,edi
-restore_bg_60:
-		mov ax,bx
-		sub ax,dx
-		movsx eax,ax
-		add ebp,eax
+
+		pop edx
+
+		mov eax,[screen_line_len]
+		sub eax,edx
 		add di,ax
-		jnc restore_bg_70
-		lin2seg ebp,es,edi
-restore_bg_70:
-		dec cx
+		jnc restore_bg_60
+		call inc_winseg
+restore_bg_60:
+		mov eax,ebx
+		sub eax,edx
+		add esi,eax
+
+		dec ecx
 		jnz restore_bg_20
 
 restore_bg_90:
 		pop dword [gfx_cur]
 
-		call lin_seg_off
-
+		pop gs
 		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Load screen segments.
 ;
-; Load screen segments. Write segment to es, read segment to fs.
+; return:
+;  fs		read segment
+;  gs		write segment
 ;
 ; Modified registers: -
 ;
+
+		bits 32
+
 screen_segs:
-		call screen_seg_w
-		jmp screen_seg_r
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Load write segment to es.
-;
-; Modified registers: -
-;
-screen_seg_w:
-		mov es,[window_seg_w]
+		push eax
+		mov ax,pm_seg.screen_r16
+		mov fs,ax
+		mov ax,pm_seg.screen_w16
+		mov gs,ax
+		pop eax
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Draw filled rectangle.
 ;
-; Load read segment to fs.
-;
-; Modified registers: -
-;
-screen_seg_r:
-		cmp word [window_seg_r],0
-		jz screen_seg_r_10
-		mov fs,[window_seg_r]
-		ret
-screen_seg_r_10:
-		mov fs,[window_seg_w]
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; draw a filled rectangle
-;
-;		dx, cx	= width, height
+;  dx, cx	width, height
 ;  eax		color
-;		bh,bl	= bh -> bl
-;		bp	= drawing mode
-;			  0: move, 1: add, 2,3: dto, except for bh (bh->bl)
 ;
+
+		bits 32
+
 fill_rect:
+		push fs
+		push gs
+
 		mov [gfx_width],dx
 		mov [gfx_height],cx
 
 		call clip_it
 		jc fill_rect_90
 
-		mov dx,[gfx_width]
-		mov cx,[gfx_height]
+		movzx edx,word [gfx_width]
+		movzx ecx,word [gfx_height]
 
 		call goto_xy
-
 		call screen_segs
 
-		mov bp,[screen_line_len]
-		push dx
-		mov ax,dx
-		xor dx,dx
-		mul word [pixel_bytes]
-		sub bp,ax
-		pop dx
+		mov ebp,[screen_line_len]
+		mov eax,edx
+		imul eax,[pixel_bytes]
+		sub ebp,eax
 
 fill_rect_20:
-		mov bx,dx
+		mov ebx,edx
 fill_rect_30:
 		call [setpixel_t]
 		add di,[pixel_bytes]
 		jnc fill_rect_60
 		call inc_winseg
 fill_rect_60:
-		dec bx
+		dec ebx
 		jnz fill_rect_30
 
 		add di,bp
 		jnc fill_rect_80
 		call inc_winseg
 fill_rect_80:
-		dec cx
+		dec ecx
 		jnz fill_rect_20
 
 fill_rect_90:
+
+		pop gs
+		pop fs
 		ret	
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Our timer interrut handler.
+;
+; Needed to play sound via pc-speaker.
+;
+
+		bits 16
+
 new_int8:
 		pushad
 		push ds
@@ -13106,7 +13271,7 @@ new_int8_40:
 new_int8_60:
 		cmp ax,160
 		jae new_int8_80
-		call mod_get_samples
+		pm32_call mod_get_samples
 
 new_int8_80:
 
@@ -13121,6 +13286,15 @@ new_int8_90:
 
 		iret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Prepare sound subsystem.
+;
+; Installs a new timer interrupt handler and increases timer frequency.
+;
+
+		bits 32
+
 sound_init:
 		cmp byte [sound_ok],0
 		jnz sound_init_90
@@ -13130,33 +13304,34 @@ sound_init:
 
 		mov eax,ar_sizeof
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc sound_init_90
-		push eax
-		call lin2so
-		pop dword [mod_buf]
+		mov [mod_buf],eax
 
 		call mod_init
 
 		mov eax,sound_buf_size
 		call calloc
-		cmp eax,byte 1
+		cmp eax,1
 		jc sound_init_90
-		push eax
-		call lin2so
-		pop dword [sound_buf]
+		mov [sound_buf.lin],eax
+		mov edx,eax
+		and eax,~0fh
+		shl eax,12
+		and edx,0fh
+		mov ax,dx
+		mov [sound_buf],eax
 
 		xor eax,eax
 		mov [int8_count],eax
-		mov [sound_start],ax
-		mov [sound_end],ax
+		mov [sound_start],eax
+		mov [sound_end],eax
 		mov [sound_playing],al
 		mov [sound_int_active],al
 
-		push ds
-		pop es
-		mov di,playlist
-		mov cx,playlist_entries * sizeof_playlist
+		mov edi,playlist
+		add edi,[prog.base]
+		mov ecx,playlist_entries * sizeof_playlist
 		rep stosb
 
 		pushf
@@ -13177,13 +13352,10 @@ sound_init:
 		out 40h,al
 		out 40h,al
 
-		push word 0
-		pop es
-
 		push dword [es:8*4]
 		pop dword [sound_old_int8]
 
-		push cs
+		push word [rm_prog_cs]
 		push word new_int8
 		pop dword [es:8*4]
 
@@ -13222,12 +13394,20 @@ sound_init_50:
 
 		xor eax,eax
 		mov [next_int],eax
-		mov [next_int + 4],eax
+		mov [next_int+4],eax
 
 		mov byte [sound_ok],1
 sound_init_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Shut down sound subsystem.
+;
+; Activates old timer interrupt handler and sets timer frequency back to
+; normal.
+;
+		bits 32
 
 sound_done:
 		cmp byte [sound_ok],0
@@ -13251,9 +13431,6 @@ sound_done:
 		mov [sound_cnt0],ax
 		mov [sound_playing],al
 
-		push word 0
-		pop es
-
 		push dword [sound_old_int8]
 		pop dword [es:8*4]
 
@@ -13261,25 +13438,24 @@ sound_done:
 
 		popf
 
-		push dword [mod_buf]
-		call so2lin
-		pop eax
-		pm_enter 32
+		mov eax,[mod_buf]
 		call free
-		pm_leave 32
 
-		push dword [sound_buf]
-		call so2lin
-		pop eax
-		pm_enter 32
+		mov eax,[sound_buf.lin]
 		call free
-		pm_leave 32
 
 sound_done_90:
 		ret
 
 
-; eax: new sample rate
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set sample rate for sound playback.
+;
+; eax		sample rate
+;
+
+		bits 32
+
 sound_setsample:
 		cmp eax,20
 		jae sound_setsample_20
@@ -13320,7 +13496,15 @@ sound_setsample_50:
 sound_setsample_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Test sound subsystem.
+;
+
 %if 0
+
+		bits 32
+
 sound_test:
 		cmp dword [sound_x],0
 		jz sound_test_80
@@ -13335,8 +13519,6 @@ sound_test:
 
 		jmp sound_test_90
 
-
-
 sound_test_80:
 		call sound_done
 sound_test_90:
@@ -13344,112 +13526,117 @@ sound_test_90:
 %endif
 
 
-; mod player
-%include	"modplay.inc"
-
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Init mod player.
+;
+		bits 32
 
 mod_init:
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
+		mov esi,[mod_buf]
 		call init
-		clc
-		pop ds
 		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
 
 mod_load:
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
+		mov esi,[mod_buf]
 		call loadmod
-		pop ds
 		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
 
 mod_play:
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
+		mov esi,[mod_buf]
 		call playmod
-		pop ds
 		mov byte [sound_playing],1
 		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
 
 mod_playsample:
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
+		mov esi,[mod_buf]
 		call playsamp
-		pop ds
 		mov byte [sound_playing],1
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
+
 mod_get_samples:
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
+		mov esi,[mod_buf]
+		push esi
 		call play
-		mov dl,[si]
-		add si,ar_samps
-		push ds
-		pop fs
-		pop ds
+		pop esi
+
+		mov dl,[es:esi]
+		add esi,ar_samps
 
 		; dl: 0/1 --> play nothing/play
 		sub dl,1
 
-		mov cx,num_samples
-		les bx,[sound_buf]
-		mov di,[sound_end]
+		mov ecx,num_samples
+		mov ebx,[sound_buf.lin]
+		mov edi,[sound_end]
 		cld
 
 mod_get_samples_20:
 
-		fs lodsb
+		es lodsb
 		or al,dl		; 0ffh if we play nothing
-		mov [es:bx+di],al
-		inc di
-		cmp di,sound_buf_size
+		mov [es:ebx+edi],al
+		inc edi
+		cmp edi,sound_buf_size
 		jb mod_get_samples_50
-		xor di,di
+		xor edi,edi
 
 mod_get_samples_50:
 
-		dec cx
+		dec ecx
 		jnz mod_get_samples_20
-		mov [sound_end],di
+		mov [sound_end],edi
 
 mod_get_samples_90:
 		ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set mod player volume.
+;
+; al		volume (0 .. 100)
+;
+
+		bits 32
+
 mod_setvolume:
 		cmp byte [sound_ok],0
 		jz mod_setvolume_90
-		push ds
-		push dword [mod_buf]
-		pop si
-		pop ds
 
-		mov dx,ax
-		xor ax,ax
-		or dx,dx
+		mov esi,[mod_buf]
+
+		movzx edx,al
+		xor eax,eax
+		or edx,edx
 		jz mod_setvolume_50
 		sub ax,1
 		sbb dx,0
 		mov bx,100
 		div bx
 mod_setvolume_50:
-		mov bx,ax
-		xor ax,ax
-		mov cx,ax
-		dec ax
+		mov ebx,eax
+		xor ecx,ecx
+		lea eax,[ecx-1]
 		call setvol
-
-		pop ds
 mod_setvolume_90:
 		ret
 
@@ -13460,17 +13647,20 @@ mod_setvolume_90:
 ; return:
 ;  CF		0/1	yes/no
 ;
+
+		bits 32
+
 chk_cpuid:
 		mov ecx,1 << 21
-		pushfd
-		pushfd
+		pushf
+		pushf
 		pop eax
 		xor eax,ecx
 		push eax
-		popfd
-		pushfd
+		popf
+		pushf
 		pop edx
-		popfd
+		popf
 		xor eax,edx
 		cmp eax,ecx
 		stc
@@ -13480,11 +13670,15 @@ chk_cpuid_90:
 		ret
 
 
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ; Check for time stamp counter.
 ;
 ; return:
 ;  CF		0/1	yes/no
 ;
+
+		bits 32
+
 chk_tsc:
 		call chk_cpuid
 		jc chk_tsc_90
@@ -13497,11 +13691,15 @@ chk_tsc_90:
 		ret
 
 
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ; Check for 64 bit extension.
 ;
 ; return:
 ;  CF		0/1	yes/no
 ;
+
+		bits 32
+
 chk_64bit:
 		call chk_cpuid
 		jc chk_64bit_90
@@ -13515,14 +13713,18 @@ chk_64bit_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
+
 prim_xxx:
 ;		call pr_setptr_or_none
 		; eax
-		call mouse_init
+		rm32_call mouse_init
 		or ah,ah
 		mov eax,0
 		jnz prim_xxx_90
-		segofs2lin cs,word mouse_x,eax
+		mov eax,mouse_x
+		add eax,[prog.base]
 prim_xxx_90:
 		jmp pr_getptr_or_none
 
@@ -13537,6 +13739,9 @@ prim_xxx_90:
 ;  eax		file start (lin)
 ;
 ; Note: use find_mem_size to find out the file size
+
+		bits 32
+
 find_file_ext:
 		mov dl,t_string
 		push eax
@@ -13548,23 +13753,20 @@ find_file_ext:
 		cmp ecx,64
 		jae find_file_ext_80
 
-		push cx
+		push ecx
 
 		push eax
 		mov al,0
 		call gfx_cb			; get file name buffer address (edx)
-		call lin2so
-		pop si
-		pop fs
+		pop esi
 
-		pop cx
+		pop ecx
 
 		or al,al
 		jnz find_file_ext_80
 
-		lin2segofs edx,es,di
-
-		fs rep movsb
+		mov edi,edx
+		es rep movsb
 		mov al,0
 		stosb
 
@@ -13583,24 +13785,22 @@ find_file_ext:
 		push ecx
 		push eax
 
-		mov ebx,eax
+		; eax: buffer, ecx: buffer size
+
+		mov edi,eax
 
 find_file_ext_20:
-		push ebx
+		push edi
 		mov al,2
 		call gfx_cb			; read next chunk (edx buffer, ecx len)
-		pop ebx
+		pop edi
 		or al,al
 		jnz find_file_ext_50
 		or ecx,ecx
 		jz find_file_ext_50
 
-		lin2segofs edx,fs,si
-		lin2segofs ebx,es,di
-
-		add ebx,ecx
-
-		fs rep movsb
+		mov esi,edx
+		es rep movsb
 
 		jmp find_file_ext_20
 
@@ -13610,14 +13810,12 @@ find_file_ext_50:
 		pop ecx
 
 		; did we get everything...?
-		sub ebx,ecx
-		cmp eax,ebx
+		sub edi,ecx
+		cmp eax,edi
 		jz find_file_ext_90
 
 		; ... no -> read error
-		pm_enter 32
 		call free
-		pm_leave 32
 
 find_file_ext_80:
 		xor eax,eax
@@ -13626,7 +13824,6 @@ find_file_ext_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Find file from file system, returns size.
 ;
 ;  eax		file name (lin)
@@ -13634,6 +13831,9 @@ find_file_ext_90:
 ; return:
 ;  eax		file size (-1: not found)
 ;
+
+		bits 32
+
 file_size_ext:
 		mov dl,t_string
 		push eax
@@ -13645,23 +13845,20 @@ file_size_ext:
 		cmp ecx,64
 		jae file_size_ext_80
 
-		push cx
-
+		push ecx
 		push eax
+
 		mov al,0
 		call gfx_cb			; get file name buffer address (edx)
-		call lin2so
-		pop si
-		pop fs
+		mov edi,edx
 
-		pop cx
+		pop esi
+		pop ecx
 
 		or al,al
 		jnz file_size_ext_80
 
-		lin2segofs edx,es,di
-
-		fs rep movsb
+		es rep movsb
 		mov al,0
 		stosb
 
@@ -13681,7 +13878,6 @@ file_size_ext_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Clip image area.
 ;
 ; [line_x0]		left, incl
@@ -13694,6 +13890,9 @@ file_size_ext_90:
 ;  If CF = 0		Area adjusted to fit within [line_*].
 ;  If CF = 1		Undefined values in [line_*].
 ;
+
+		bits 32
+
 clip_image:
 		movzx edx,word [image_width]
 		mov eax,[line_x0]
@@ -13738,8 +13937,7 @@ clip_image_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Unpack image to buffer.
+; Draw image into buffer.
 ;
 ; eax			drawing buffer
 ; [image]		image
@@ -13748,6 +13946,9 @@ clip_image_90:
 ; dword [line_x1]	x1	; lower right
 ; dword [line_y1]	y1
 ;
+
+		bits 32
+
 unpack_image:
 		cmp byte [image_type],1
 		jnz unpack_image_20
@@ -13762,29 +13963,296 @@ unpack_image_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Activate image from file.
 ;
-; Draw image on screen.
+;  eax		lin ptr to image
 ;
-; [image]		image
-; dword [line_x0]	x0	; upper left
+; return:
+;  CF		error
+;
+
+		bits 32
+
+image_init:
+		call pcx_init
+		jnc image_init_90
+		call jpg_init
+image_init_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Draw image region on screen.
+;
+; [image]		jpg image
+; dword [line_x0]	x0	; uppper left
 ; dword [line_y0]	y0
 ; dword [line_x1]	x1	; lower right
 ; dword [line_y1]	y1
 ;
+
+		bits 32
+
 show_image:
-		cmp byte [image_type],1
-		jnz show_image_20
-		call pcx_show
-		jmp show_image_90
+		xor esi,esi
+		xor eax,eax
+show_image_10:
+		push esi
+		push eax
+		call memsize
+		pop eax
+		pop esi
+		cmp edi,esi
+		jb show_image_20
+		mov esi,edi
 show_image_20:
+		inc eax
+		cmp eax,malloc.areas
+		jb show_image_10
+
+		; esi: largest free mem block
+
+		sub esi,4		; fb header size
+		jc show_image_90
+
+		mov ebx,[line_y1]
+		sub ebx,[line_y0]
+
+		mov ecx,[line_x1]
+		sub ecx,[line_x0]
+
+		mov eax,[pixel_bytes]
+		mul ecx
+		xchg eax,esi
+		div esi
+
+		; fb height
+
+		cmp eax,ebx
+		jbe show_image_30
+		mov eax,ebx
+show_image_30:
+		mov [line_tmp],eax
+
+		or eax,eax
+		jz show_image_90
+
+		; eax, ecx, height, width
+		call alloc_fb
+
+		or eax,eax
+		jz show_image_90
+
+		mov [line_tmp2],eax
+
+show_image_40:
+		mov eax,[line_y1]
+		sub eax,[line_y0]
+		jle show_image_70
+		mov ebp,[line_tmp]
+		cmp eax,ebp
+		jle show_image_50
+		mov eax,ebp
+show_image_50:
+		mov bp,ax
+		add eax,[line_y0]
+		xchg eax,[line_y1]
+
+		push eax
+		mov eax,[line_tmp2]
+
+		push ebp
+
+		cmp byte [image_type],1
+		jnz show_image_54
+		call pcx_unpack
+		jmp show_image_56
+show_image_54:
 		cmp byte [image_type],2
-		jnz show_image_90
-		call jpg_show
+		jnz show_image_56
+		call jpg_unpack
+show_image_56:
+
+		pop ebp
+
+		mov edi,[line_tmp2]
+		mov dx,[es:edi]
+		mov cx,[es:edi+2]
+
+		cmp cx,bp
+		jbe show_image_60
+		mov cx,bp
+show_image_60:
+
+		mov edi,[line_tmp2]
+		add edi,4
+		mov bx,dx
+		imul bx,[pixel_bytes]
+		call restore_bg
+
+		mov eax,[line_y1]
+		mov ecx,eax
+		sub ecx,[line_y0]
+		mov [line_y0],eax
+
+		add [gfx_cur_y],cx
+
+		pop eax
+
+		mov [line_y1],eax
+		jmp show_image_40
+
+show_image_70:
+		mov eax,[line_tmp2]
+		call free
 show_image_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Activate pcx image from file.
+;
+;  eax		pcx image
+;
+; return:
+;  eax		pcx image
+;  CF		error
+;
+
+		bits 32
+
+pcx_init:
+		push eax
+		cmp dword [es:eax],0801050ah
+		jnz pcx_init_80
+
+		mov cx,[es:eax+8]
+		inc cx
+		jz pcx_init_80
+		mov dx,[es:eax+10]
+		inc dx
+		jz pcx_init_80
+
+		push eax
+		push ecx
+		push edx
+		push ebx
+		call find_mem_size
+		pop ebx
+		pop edx
+		pop ecx
+		pop edi
+
+		; edi: image, eax: size, cx: width, dx: height
+
+		cmp eax,381h
+		jb pcx_init_80
+
+		lea esi,[eax+edi-301h]
+
+		cmp byte [es:esi],12
+		jnz pcx_init_80
+
+		inc esi
+
+		mov byte [image_type],1		; pcx
+
+		mov [image],edi
+		mov [image_width],cx
+		mov [image_height],dx
+
+		push esi
+		call parse_pcx_img
+		pop esi
+
+		mov edi,[gfx_pal]
+
+		mov ecx,300h
+		push ecx
+		es rep movsb
+		pop ecx
+
+		xor eax,eax
+		mov edx,ecx
+		dec edi
+		std
+		repz scasb
+		cld
+		setnz al
+		sub edx,ecx
+		sub edx,eax
+		xchg eax,edx
+		xor edx,edx
+		mov ecx,3
+		div ecx
+		sub eax,100h
+		neg eax
+		mov [pals],ax
+
+		clc
+		jmp pcx_init_90
+		
+pcx_init_80:
+		stc
+pcx_init_90:
+		pop eax
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
+
+		bits 32
+
+parse_pcx_img:
+		mov eax,[pcx_line_starts]
+		or eax,eax
+		jz parse_pcx_img_10
+		call free
+parse_pcx_img_10:
+		movzx eax,word [image_height]
+		shl eax,2
+		call calloc
+		or eax,eax
+		stc
+		mov [pcx_line_starts],eax
+		jz parse_pcx_img_90
+
+		mov edi,eax
+		mov esi,[image]
+		add esi,80h		; skip pcx header
+
+		xor edx,edx		; y count
+
+parse_pcx_img_20:
+		xor ecx,ecx		; x count
+		mov [es:edi],esi
+		add edi,4
+parse_pcx_img_30:
+		es lodsb
+		cmp al,0c0h
+		jb parse_pcx_img_40
+		and eax,3fh
+		inc esi
+		add ecx,eax
+		dec ecx
+parse_pcx_img_40:
+		inc ecx
+		cmp cx,[image_width]
+		jb parse_pcx_img_30
+		stc
+		jnz parse_pcx_img_90		; no decoding break at line end?
+
+		inc edx
+		cmp dx,[image_height]
+		jb parse_pcx_img_20
+
+parse_pcx_img_90:
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Draw pcx image region into buffer.
 ;
 ; eax			drawing buffer
 ; [image]		pcx image
@@ -13793,75 +14261,80 @@ show_image_90:
 ; dword [line_x1]	x1	; lower right
 ; dword [line_y1]	y1
 ;
+; note:
+;  [line_*] are unchanged
+;
+
+		bits 32
+
 pcx_unpack:
-		push gs
-		push fs
+		push dword [line_x1]
+		push dword [line_y1]
 
-		lin2segofs dword [pcx_line_starts],gs,bp
+		mov ebp,[pcx_line_starts]
 
-		add eax,4
-		lin2seg eax,es,edi
+		lea edi,[eax+4]
 
-		mov ax,[line_x0]
-		sub [line_x1],ax
+		mov eax,[line_x0]
+		sub [line_x1],eax
 
-		mov ax,[line_y0]
-		sub [line_y1],ax
+		mov eax,[line_y0]
+		sub [line_y1],eax
 
-		shl ax,2
-		add bp,ax
+		shl eax,2
+		add ebp,eax
 
 pcx_unpack_20:
-		lfs si,[gs:bp]
+		mov esi,[es:ebp]
 
-		mov cx,[line_x0]
-		neg cx
+		mov ecx,[line_x0]
+		neg ecx
 
 		; draw one line
 pcx_unpack_30:
-		fs lodsb
+		xor eax,eax
+		es lodsb
 
-		mov ah,0
 		cmp al,0c0h
 		jb pcx_unpack_70
 
 		; repeat count
 
-		and ax,3fh
-		mov dx,ax
-		fs lodsb
+		and eax,3fh
+		mov edx,eax
+		es lodsb
 
-		add cx,dx
+		add ecx,edx
 		js pcx_unpack_80
 		jnc pcx_unpack_40
-		mov dx,cx
+		mov edx,ecx
 
 pcx_unpack_40:
-		mov bx,cx
-		sub bx,[line_x1]
+		mov ebx,ecx
+		sub ebx,[line_x1]
 		jle pcx_unpack_50
-		sub dx,bx
+		sub edx,ebx
 pcx_unpack_50:
-		or dx,dx
+		or edx,edx
 		jz pcx_unpack_80
-		dec dx
+		dec edx
 		cmp byte [pixel_bytes],1
 		jbe pcx_unpack_54
-		push ax
+		push eax
 		call pal_to_color
 		call encode_color
 		call [setpixel_a]
-		pop ax
+		pop eax
 		jmp pcx_unpack_55
 pcx_unpack_54:
-		mov [es:edi],al
+		mov [gs:edi],al
 pcx_unpack_55:
 		add edi,[pixel_bytes]
 		jmp pcx_unpack_50
 
 pcx_unpack_70:
-		inc cx
-		cmp cx,byte 0
+		inc ecx
+		cmp ecx,0
 		jle pcx_unpack_80
 		cmp byte [pixel_bytes],1
 		jbe pcx_unpack_74
@@ -13871,165 +14344,58 @@ pcx_unpack_74:
 		call [setpixel_a]
 		add edi,[pixel_bytes]
 pcx_unpack_80:
-		cmp cx,[line_x1]
+		cmp ecx,[line_x1]
 		jl pcx_unpack_30
 
-		add bp,4
-		dec word [line_y1]
+		add ebp,4
+		dec dword [line_y1]
 		jnz pcx_unpack_20
 
 pcx_unpack_90:
-		call lin_seg_off
-
-		pop fs
-		pop gs
+		pop dword [line_y1]
+		pop dword [line_x1]
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Allocate static buffer for jpeg decoder.
 ;
-; Draw part of pcx image.
+; return:
+;  [jpg_static_buf]	buffer
 ;
-; [image]		pcx image
-; dword [line_x0]	x0	; uppper left
-; dword [line_y0]	y0
-; dword [line_x1]	x1	; lower right
-; dword [line_y1]	y1
-;
-pcx_show:
-		push gs
-		push fs
+		bits 32
 
-		mov es,[window_seg_w]
-
-		lin2segofs dword [pcx_line_starts],gs,bp
-
-		mov ax,[line_x0]
-		sub [line_x1],ax
-
-		mov ax,[line_y0]
-		sub [line_y1],ax
-pcx_show_10:
-		shl ax,2
-		add bp,ax
-
-pcx_show_20:
-		call goto_xy
-
-		lfs si,[gs:bp]
-
-		mov cx,[line_x0]
-		neg cx
-
-		; draw one line
-pcx_show_30:
-		fs lodsb
-
-		mov ah,0
-		cmp al,0c0h
-		jb pcx_show_70
-
-		; repeat count
-
-		and ax,3fh
-		mov dx,ax
-		fs lodsb
-
-		add cx,dx
-		js pcx_show_80
-		jnc pcx_show_40
-		mov dx,cx
-
-pcx_show_40:
-		mov bx,cx
-		sub bx,[line_x1]
-		jle pcx_show_50
-		sub dx,bx
-pcx_show_50:
-		or dx,dx
-		jz pcx_show_80
-		dec dx
-		cmp ax,[transparent_color]
-		jz pcx_show_55
-		cmp byte [pixel_bytes],1
-		jbe pcx_show_54
-		push ax
-		call pal_to_color
-		call encode_color
-		call [setpixel_a]
-		pop ax
-		jmp pcx_show_55
-pcx_show_54:
-		mov [es:di],al
-pcx_show_55:
-		add di,[pixel_bytes]
-		jnc pcx_show_50
-		call inc_winseg
-		jmp pcx_show_50
-
-pcx_show_70:
-		inc cx
-		cmp cx,byte 0
-		jle pcx_show_80
-		cmp ax,[transparent_color]
-		jz pcx_show_75
-		cmp byte [pixel_bytes],1
-		jbe pcx_show_74
-		call pal_to_color
-		call encode_color
-		call [setpixel_a]
-		jmp pcx_show_75
-pcx_show_74:
-		mov [es:di],al
-pcx_show_75:
-		add di,[pixel_bytes]
-		jnc pcx_show_80
-		call inc_winseg
-pcx_show_80:
-		cmp cx,[line_x1]
-		jl pcx_show_30
-
-		inc word [gfx_cur_y]
-
-		add bp,4
-		dec word [line_y1]
-		jnz pcx_show_20
-
-pcx_show_90:
-		pop fs
-		pop gs
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; allocate static buffer
-;
 jpg_setup:
-		cmp word [jpg_static_buf_seg], 0
+		cmp dword [jpg_static_buf], 0
 		jnz jpg_setup_90
 
-		mov eax,jpg_data_size + 16
+		mov eax,jpg_data_size + 15
 		call calloc
 		or eax,eax
+		stc
 		jz jpg_setup_90
-		add eax,15
-		shr eax,4
 
-		mov [jpg_static_buf_seg],ax
+		; align a bit
+		add eax,15
+		and eax,~15
+
+		mov [jpg_static_buf],eax
 jpg_setup_90:
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Activate jpeg image from file.
 ;
-; Activate jpg image from file.
-;
-;  eax:		lin ptr to image
+;  eax		jpeg image
 ;
 ; return:
-;  CF:		error
+;  eax		jpeg image
+;  CF		error
 ;
+
+		bits 32
+
 jpg_init:
 		push eax
 
@@ -14037,7 +14403,7 @@ jpg_init:
 		call jpg_setup
 		pop eax
 
-		cmp word [jpg_static_buf_seg],0
+		cmp dword [jpg_static_buf],0
 		jz jpg_init_80
 
 		push eax
@@ -14048,8 +14414,7 @@ jpg_init:
 		or ecx,ecx
 		jz jpg_init_80
 
-		lin2segofs eax,es,bx
-		cmp dword [es:bx],0e0ffd8ffh
+		cmp dword [es:eax],0e0ffd8ffh
 		jnz jpg_init_80
 
 		call jpg_size
@@ -14076,37 +14441,43 @@ jpg_init_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Read jpeg image size.
 ;
-; eax		jpg image
+; eax		jpeg image
 ;
 ; return:
+;  eax		size (low word: width, high word: height)
 ;  CF		error
 ;
+
+		bits 32
+
 jpg_size:
-		lin2seg eax,es,eax
-
-		mov ds,[jpg_static_buf_seg]
-
+		push fs
 		push eax
+
+		mov si,pm_seg.data_d16
+		mov eax,[jpg_static_buf]
+		call set_gdt_base_pm
+		mov fs,si
+
 		call dword jpeg_get_size
+
 		pop ecx
-
-		push cs
-		pop ds
-
-		call lin_seg_off
 
 		or eax,eax
 		jnz jpg_size_90
 		stc
 jpg_size_90:
+		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Unpack image region from jpeg.
 ;
 ; eax			drawing buffer
-; [image]		jpg image
+; [image]		jpeg image
 ; dword [line_x0]	x0
 ; dword [line_y0]	y0
 ; dword [line_x1]	x1
@@ -14115,7 +14486,12 @@ jpg_size_90:
 ; note:
 ;  [line_*] are unchanged
 ;
+
+		bits 32
+
 jpg_unpack:
+		push fs
+
 		movzx edx,byte [pixel_bits]
 		cmp dl,16
 		jz jpg_unpack_10
@@ -14130,175 +14506,31 @@ jpg_unpack_10:
 		push dword [line_x1]
 		push dword [line_x0]
 		add eax,4
-		lin2seg eax,fs,eax
 		push eax
-		lin2seg dword [image],es,eax
-		push eax
+		push dword [image]
 
-		mov ds,[jpg_static_buf_seg]
+		mov si,pm_seg.data_d16
+		mov eax,[jpg_static_buf]
+		call set_gdt_base_pm
+		mov fs,si
 
 		call dword jpeg_decode
 
 		add sp,28
 
-		push cs
-		pop ds
-
-		call lin_seg_off
-
 jpg_unpack_90:
+		pop fs
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Install mouse handler.
 ;
-; Draw part of jpg image.
+; Note: experimental.
 ;
-; [image]		jpg image
-; dword [line_x0]	x0	; uppper left
-; dword [line_y0]	y0
-; dword [line_x1]	x1	; lower right
-; dword [line_y1]	y1
-;
-jpg_show:
-		pm_enter 32
 
-		xor eax,eax
-		call memsize
-		push edi
-		mov eax,1
-		call memsize
-		pop eax
+		bits 16
 
-		pm_leave 32
-
-		cmp edi,eax
-		jae jpg_show_20
-		mov edi,eax
-jpg_show_20:
-		; edi: largest free mem block
-
-		sub edi,4		; fb header size
-		jc jpg_show_90
-
-		mov ebx,[line_y1]
-		sub ebx,[line_y0]
-
-		mov ecx,[line_x1]
-		sub ecx,[line_x0]
-
-		mov eax,[pixel_bytes]
-		mul ecx
-		xchg eax,edi
-		div edi
-
-		; fb height
-
-		cmp eax,ebx
-		jbe jpg_show_30
-		mov eax,ebx
-jpg_show_30:
-		mov [line_tmp],eax
-
-		or eax,eax
-		jz jpg_show_90
-
-		; eax, ecx, height, width
-		call alloc_fb
-		or eax,eax
-		jz jpg_show_90
-
-		mov [line_tmp2],eax
-
-jpg_show_40:
-		mov eax,[line_y1]
-		sub eax,[line_y0]
-		jle jpg_show_70
-		mov ebp,[line_tmp]
-		cmp eax,ebp
-		jle jpg_show_50
-		mov eax,ebp
-jpg_show_50:
-		mov bp,ax
-		add eax,[line_y0]
-		xchg eax,[line_y1]
-
-		push eax
-		mov eax,[line_tmp2]
-		push bp
-
-		call jpg_unpack
-		pop bp
-
-		lin2seg dword [line_tmp2],es,edi
-		mov dx,[es:edi]
-		mov cx,[es:edi+2]
-		call lin_seg_off
-
-		cmp cx,bp
-		jbe jpg_show_60
-		mov cx,bp
-jpg_show_60:
-
-		mov edi,[line_tmp2]
-		add edi,4
-		mov bx,dx
-		imul bx,[pixel_bytes]
-		call restore_bg
-
-		mov eax,[line_y1]
-		mov ecx,eax
-		sub ecx,[line_y0]
-		mov [line_y0],eax
-
-		add [gfx_cur_y],cx
-
-		pop eax
-
-		mov [line_y1],eax
-		jmp jpg_show_40
-
-jpg_show_70:
-
-		mov eax,[line_tmp2]
-		pm_enter 32
-		call free
-		pm_leave 32
-
-jpg_show_90:
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Switch to local stack.
-;
-; no regs or flags changed
-;
-use_local_stack:
-		cmp dword [old_stack],0
-		jnz $		; FIXME - for testing
-		pop word [tmp_stack_val]
-		mov [old_stack],esp
-		mov [old_stack+4],ss
-		lss esp,[local_stack]
-		jmp [tmp_stack_val]
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
-; Switch back to system wide stack.
-;
-; no regs or flags changed
-;
-use_old_stack:
-		cmp dword [old_stack],0
-		jz $		; FIXME - for testing
-		pop word [tmp_stack_val]
-		lss esp,[old_stack]
-		mov dword [old_stack],0
-		jmp [tmp_stack_val]
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 mouse_init:
 		push cs
 		pop es
@@ -14329,11 +14561,14 @@ mouse_handler:
 
 		retf
 
+
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Get monitor capabilities.
 ;
 ;
+
+		bits 32
+
 get_monitor_res:
 		call read_ddc
 		call read_fsc
@@ -14364,12 +14599,12 @@ get_mon_res_24:
 
 		; find max. resolution
 
-		mov cx,5
-		mov si,ddc_xtimings
+		mov ecx,5
+		mov esi,ddc_xtimings
 
 get_mon_res_30:
-		mov ax,[si]
-		mov dx,[si+2]
+		mov ax,[esi]
+		mov dx,[esi+2]
 
 		cmp ax,[ddc_xtimings]
 		jb get_mon_res_60
@@ -14381,200 +14616,181 @@ get_mon_res_30:
 		mov [ddc_xtimings+2],dx
 
 get_mon_res_60:
-		add si,4
+		add esi,4
 		loop get_mon_res_30
 
 		ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read EDID record via DDC
 ;
-read_ddc:
-		push es
 
+		bits 32
+
+read_ddc:
 		; vbe support check
 		cmp word [screen_mem],0
 		jz read_ddc_90
 
-%if 0
-		xor cx,cx
-		xor dx,dx
-		mov ax,4f15h
-		mov bl,0
-		int 10h
-		cmp ax,4fh
-		jnz read_ddc_90
-%endif
-
-		xor bp,bp
+		xor ebp,ebp
 
 read_ddc_20:
-		push bp
-		les di,[vbe_buffer]
-		push di
-		mov cx,40h
-		xor ax,ax
-		rep stosw
-		pop di
-		mov ax,4f15h
+		mov edi,[vbe_buffer]
+
+		mov ecx,80h
+		xor eax,eax
+		push edi
+		rep stosb
+		pop edi
+
+		mov eax,edi
+		shr eax,4
+		mov [rm_seg.es],ax
+		and edi,0fh
+
+                mov ax,4f15h
 		mov bl,1
 		mov cx,bp
 		xor dx,dx
-		push di
+		push ebp
 		int 10h
-		pop di
-		pop bp
+		pop ebp
 		cmp ax,4fh
 		jz read_ddc_30
 
-		inc bp
-		cmp bp,2		; some BIOSes don't like more (seen on a Packard Bell EasyNote)
+		inc ebp
+		cmp ebp,2		; some BIOSes don't like more (seen on a Packard Bell EasyNote)
 		jb read_ddc_20
 
 		jmp read_ddc_90
 
 read_ddc_30:
 
-		mov ax,[es:di+23h]
+		mov edi,[vbe_buffer]
+
+		mov ax,[es:edi+23h]
 		mov [ddc_timings],ax
 
-		mov cx,4
-		lea si,[di+26h]
-		mov di,ddc_xtimings1
+		mov ecx,4
+		lea esi,[edi+26h]
+		mov edi,ddc_xtimings1
 read_ddc_40:
 		es lodsb
 		cmp al,1
 		jbe read_ddc_70
 		
 		movzx ebp,al
-		add bp,byte 31
-		shl bp,3
+		add ebp,31
+		shl ebp,3
 
-		mov al,[es:si]
+		mov al,[es:esi]
 		shr al,6
 		jz read_ddc_70
-		movzx bx,al
-		shl bx,3
+		movzx ebx,al
+		shl ebx,3
 
 		mov eax,ebp
-		mul dword [bx+ddc_mult]
-		div dword [bx+ddc_mult+4]
+		mul dword [ebx+ddc_mult]
+		div dword [ebx+ddc_mult+4]
 		
 		jz read_ddc_70
 
 		shl eax,16
 		add eax,ebp
-		mov [di],eax
+		mov [edi],eax
 
 read_ddc_70:
-		inc si
-		add di,4
+		inc esi
+		add edi,4
 		loop read_ddc_40
 
 read_ddc_90:
-		pop es
 		ret
-
-ddc_timings	dw 0		; standard ddc timing info
-ddc_xtimings	dd 0		; converted standard timing/final timing value
-ddc_xtimings1	dd 0, 0, 0, 0
-ddc_mult	dd 0, 1		; needed for ddc timing calculation
-		dd 3, 4
-		dd 4, 5
-		dd 9, 16
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; look for a fsc notebook lcd panel and set ddc_timings
+; Look for a fsc notebook lcd panel and set ddc_timings.
+;
+
+		bits 32
+
 read_fsc:
-		push es
-		push ds
-		cmp word [ddc_timings],byte 0
+		cmp word [ddc_timings],0
 		jnz read_fsc_90
 
-		push word 0xf000
-		pop ds
-		xor di,di
+		mov edi,0f0000h
 read_fsc_10:
-		cmp dword [di],0x696a7546
+		cmp dword [es:edi],0x696a7546
 		jnz read_fsc_30
-		cmp dword [di+4],0x20757374
+		cmp dword [es:edi+4],0x20757374
 		jnz read_fsc_30
-		mov cx,0x20
-		xor bx,bx
-		mov si,di
+		mov ecx,0x20
+		xor ebx,ebx
+		mov esi,edi
 read_fsc_20:
-		lodsb
+		es lodsb
 		add bl,al
-		dec cx
+		dec ecx
 		jnz read_fsc_20
 		or bl,bl
 		jnz read_fsc_30
-		mov al,[di+23]
+		mov al,[es:edi+23]
 		and al,0xf0
 		jnz read_fsc_90
-		mov bl,[di+21]
-		and bx,0xf0
-		shr bx,3
-		mov ax,[cs:bx+fsc_bits]
-		mov [cs:ddc_timings],ax
+		mov bl,[es:edi+21]
+		and bl,0xf0
+		shr bl,3
+		mov ax,[fsc_bits+ebx]
+		mov [ddc_timings],ax
 		jmp read_fsc_90
 read_fsc_30:
-		add di,0x10
-		jnz read_fsc_10
+		add edi,0x10
+		cmp edi,100000h
+		jbe read_fsc_10
 read_fsc_90:
-		pop ds
-		pop es
 		ret
-
-fsc_bits	dw 0, 0x0004, 0x4000, 0x0200, 0x0100, 0x0200, 0, 0x4000
-		dw 0x0200, 0, 0, 0, 0, 0, 0, 0
-
-
-%if 0
-xxx_setscreen:
-		push es
-		pushad
-		call encode_color
-		push word 0a000h
-		pop es
-		xor di,di
-		mov cx,4000h
-		rep stosd
-		call get_key
-		popad
-		pop es
-		ret
-
-%endif
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-;
 ; Read vbe card info.
 ;
 ; al		info type
+;		  0: video mem size in kb
+;		  1: oem string
+;		  2: vendor string
+;		  3: product string
+;		  4: revision string
 ;
 ; return:
 ;  eax		info
-;   dl		info type
+;   dl		info type (enum_type_t)
 ;
+
+		bits 32
+
 videoinfo:
-		les di,[vbe_buffer]
+		mov edi,[vbe_buffer]
+
 		push eax
-		mov dword [es:di],32454256h	; 'VBE2'
-		push di
-		add di,4
-		mov cx,200h-4
-		mov al,0
-		rep stosb
-		pop di
-		push di
+		push edi
+
+		mov ecx,200h/4
+		xor eax,eax
+		push edi
+		rep stosd
+		pop edi
+		mov dword [es:edi],32454256h	; 'VBE2'
+
+		mov eax,edi
+		shr eax,4
+		mov [rm_seg.es],ax
+		and edi,0fh
+
 		mov ax,4f00h
 		int 10h
-		pop di
+
+		pop edi
 		xor ecx,ecx
 		cmp ax,4fh
 		pop eax
@@ -14582,34 +14798,34 @@ videoinfo:
 
 		cmp word [screen_mem],0
 		jnz videoinfo_20
-		push word [es:di+12h]
+		push word [es:edi+12h]
 		pop word [screen_mem]
 videoinfo_20:
 		cmp al,0
 		jnz videoinfo_30
-		mov ax,[screen_mem]
+		movzx eax,word [screen_mem]
 		shl eax,6
 		mov dl,t_int
 		jmp videoinfo_90
 videoinfo_30:
 		cmp al,1
 		jnz videoinfo_31
-		add di,6
+		add edi,6
 		jmp videoinfo_50
 videoinfo_31:
 		cmp al,2
 		jnz videoinfo_32
-		add di,16h
+		add edi,16h
 		jmp videoinfo_50
 videoinfo_32:
 		cmp al,3
 		jnz videoinfo_33
-		add di,1ah
+		add edi,1ah
 		jmp videoinfo_50
 videoinfo_33:
 		cmp al,4
 		jnz videoinfo_34
-		add di,1eh
+		add edi,1eh
 		jmp videoinfo_50
 videoinfo_34:
 		; add more here...
@@ -14617,23 +14833,24 @@ videoinfo_34:
 		jmp videoinfo_80
 
 videoinfo_50:
-		cmp dword [es:di],0
+		cmp dword [es:edi],0
 		jz videoinfo_90
-		lfs si,[es:di]
-		mov cx,100h-1
-		les di,[vbe_info_buffer]
+		movzx esi,word [es:edi]
+		movzx ecx,word [es:edi+2]
+		shl ecx,4
+		add esi,ecx
+		mov ecx,100h-1
+		mov edi,[vbe_info_buffer]
 videoinfo_55:
-		fs lodsb
+		es lodsb
 		stosb
 		or al,al
 		jz videoinfo_57
-		dec cx
+		dec ecx
 		jnz videoinfo_55
-		mov byte [es:di],0
+		mov byte [es:edi],0
 videoinfo_57:
-		push dword [vbe_info_buffer]
-		call so2lin
-		pop eax
+		mov eax,[vbe_info_buffer]
 		mov dl,t_string
 		jmp videoinfo_90
 
@@ -14645,77 +14862,160 @@ videoinfo_90:
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Switch to local stack.
 ;
-; ds:si		descriptor
-; eax		base
+; no regs or flags changed
 ;
-set_descr_base:
-		mov [si+2],ax
-		shr eax,16
-		mov [si+4],al
-		mov [si+7],ah
-		ret
+
+		bits 16
+
+use_local_stack:
+		; cmp dword [old_stack.ofs],0
+		; jnz $
+		pop word [tmp_stack_val]
+		mov [old_stack.ofs],esp
+		mov [old_stack.seg],ss
+		lss esp,[local_stack]
+		jmp [tmp_stack_val]
+
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Switch back to system wide stack.
 ;
-; ds:si		descriptor
+; no regs or flags changed
+;
+
+		bits 16
+
+use_old_stack:
+		; cmp dword [old_stack.ofs],0
+		; jz $
+		pop word [tmp_stack_val]
+		lss esp,[old_stack]
+		mov dword [old_stack.ofs],0
+		jmp [tmp_stack_val]
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set segment descriptor base in gdt (32 bit code).
+;
+; si		descriptor
+; eax		base
+;
+; changes no regs
+;
+
+		bits 32
+
+set_gdt_base_pm:
+		push eax
+		mov [gdt+si+2],ax
+		shr eax,16
+		mov [gdt+si+4],al
+		mov [gdt+si+7],ah
+		pop eax
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set segment descriptor base in gdt.
+;
+; si		descriptor
+; eax		base
+;
+; changes no regs
+;
+
+		bits 16
+
+set_gdt_base:
+		push eax
+		mov [gdt+si+2],ax
+		shr eax,16
+		mov [gdt+si+4],al
+		mov [gdt+si+7],ah
+		pop eax
+		ret
+
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+; Set segment descriptor limit in gdt.
+;
+; si		descriptor
 ; eax		limit (largest address)
 ;
-set_descr_limit:
+; changes no regs
+;
+
+		bits 16
+
+set_gdt_limit:
+		push eax
+		push dx
 		mov dl,0
 		cmp eax,0fffffh
-		jbe set_descr_limit_40
+		jbe set_gdt_limit_40
 		shr eax,12
 		mov dl,80h	; big segment
-set_descr_limit_40:
-		mov [si],ax
+set_gdt_limit_40:
+		mov [gdt+si],ax
 		shr eax,16
-		mov ah,[si+6]
+		mov ah,[gdt+si+6]
 		and ah,70h
 		or ah,al
 		or ah,dl
-		mov [si+6],ah
+		mov [gdt+si+6],ah
+		pop dx
+		pop eax
 		ret
 
 
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; Prelimiray protected mode interface init.
+; Preliminary protected mode interface init.
 ;
 ; Setup gdt so we can at least switch modes with interrupts disabled.
 ;
 
+		bits 16
+
 gdt_init:
 		mov eax,cs
-
-		segofs2lin ax,word gdt,dword [pm_gdt.base]
-
 		mov [rm_prog_cs],ax
 
 		shl eax,4
+		mov [prog.base],eax
 
-		push eax
-		mov si,gdt.prog_c32
-		call set_descr_base
-		pop eax
-		push eax
-		mov si,gdt.prog_d16
-		call set_descr_base
-		pop eax
-		mov si,gdt.prog_c16
-		call set_descr_base
+		lea edx,[eax+gdt]
+		mov [pm_gdt.base],edx
+
+		mov si,pm_seg.prog_c32
+		call set_gdt_base
+
+		mov si,pm_seg.prog_d16
+		call set_gdt_base
+
+		mov si,pm_seg.prog_c16
+		call set_gdt_base
 
 		mov eax,0ffffh
-		push eax
-		mov si,gdt.prog_c32
-		call set_descr_limit
-		pop eax
-		push eax
-		mov si,gdt.prog_d16
-		call set_descr_limit
-		pop eax
-		mov si,gdt.prog_c16
-		call set_descr_limit
+
+		mov si,pm_seg.prog_c32
+		call set_gdt_limit
+
+		mov si,pm_seg.prog_d16
+		call set_gdt_limit
+
+		mov si,pm_seg.prog_c16
+		call set_gdt_limit
+
+		mov si,pm_seg.data_d16
+		call set_gdt_limit
+
+		mov si,pm_seg.screen_r16
+		call set_gdt_limit
+
+		mov si,pm_seg.screen_w16
+		call set_gdt_limit
 
 		ret
 
@@ -14723,23 +15023,19 @@ gdt_init:
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ; Complete protected mode setup.
 ;
-; Initialize idt and set up interrupt handlers.
+; Initialize idt and setup interrupt handlers.
 ;
-		bits 16
+
+		bits 32
 
 pm_init:
-		pushf
-		cli
-
 		mov eax,(8+8)*100h
-		call calloc
-		cmp eax,byte 1
+		call xcalloc
+		cmp eax,1
 		jc pm_init_90
 		mov [pm_idt.base],eax
 
 		; setup idt
-
-		pm_enter 32
 
 		mov esi,[pm_idt.base]
 		lea ebx,[esi+8*100h]
@@ -14766,10 +15062,7 @@ pm_init_40:
 		add edi,8
 		loop pm_init_40
 
-		pm_leave 32
-
 pm_init_90:
-		popf
 		ret
 
 
@@ -14813,17 +15106,13 @@ pm_int:
 		; get original eax
 		mov eax,[esp+4+3*2+4*4+4]	; seg from far call
 
-		switch_to_bits 16
-
-		call switch_to_rm
+		pm_leave
 
 		; jmp to int handler & continue at pm_int_50
 		retf
 pm_int_50:
 
-		call switch_to_pm
-
-		switch_to_bits 32
+		pm_enter
 
 		pop gs
 		pop fs
@@ -14841,14 +15130,13 @@ pm_int_50:
 		iret
 
 
-
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; Switch to 16bit protected mode.
+; Switch from real mode to 32 bit protected mode.
 ;
-; assumes cs = .text
+; Assumes cs = .text.
 ;
-; no normal regs or flags changed
-; segment regs != cs are stored in rm_seg
+; No normal regs or flags changed.
+; Segment regs != cs are stored in rm_seg.
 ; ds = .text; ss, es, fs, gs = 4GB selector
 ;
 
@@ -14861,9 +15149,7 @@ switch_to_pm:
 		mov eax,cr0
 
 		test al,1
-		jnz $		; FIXME - for testing
-
-		jnz switch_to_pm_80
+		jnz $			; FIXME - for testing
 
 		cli
 
@@ -14878,8 +15164,11 @@ switch_to_pm:
 		o32 lgdt [cs:pm_gdt]
 		o32 lidt [cs:pm_idt]
 		mov cr0,eax
-		jmp pm_seg.prog_c16:switch_to_pm_20
+		jmp pm_seg.prog_c32:switch_to_pm_20
 switch_to_pm_20:
+
+		bits 32
+
 		mov ax,pm_seg.prog_d16
 		mov ds,ax
 
@@ -14894,35 +15183,31 @@ switch_to_pm_20:
 		mov fs,ax
 		mov gs,ax
 
-switch_to_pm_80:
-
 		pop eax
-		popf
-		ret
+		popfw
+		o16 ret
 
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; Switch to real mode from 16bit protected mode.
+; Switch from 32 bit protected mode to real mode.
 ;
-; assumes cs = .text
+; Assumes cs = .text
 ;
-; no normal regs or flags changed
-; segment regs != cs are taken from rm_seg
+; No normal regs or flags changed.
+; Segment regs != cs are taken from rm_seg.
 ;
 
-		bits 16
+		bits 32
 
 switch_to_rm:
-		pushf
+		pushfw
 		push eax
 		push edx
 
 		mov eax,cr0
 
 		test al,1
-		jz $			; FIXME - for testing
-
-		jz switch_to_rm_80
+		jz $				; FIXME - for testing
 
 		cli
 
@@ -14935,9 +15220,16 @@ switch_to_rm:
 		mov fs,dx
 		mov gs,dx
 
+		; first down to 16 bit...
+		jmp pm_seg.prog_c16:switch_to_rm_10
+switch_to_rm_10:
+
+		bits 16
+
 		and al,~1
 		mov cr0,eax
 
+		; ... then reload cs
 		jmp 0:switch_to_rm_20
 rm_prog_cs	equ $-2				; our real mode cs value (patched here)
 switch_to_rm_20:
@@ -14952,31 +15244,18 @@ switch_to_rm_20:
 		mov fs,[cs:rm_seg.fs]
 		mov gs,[cs:rm_seg.gs]
 
-switch_to_rm_80:
-
 		pop edx
 		pop eax
 		popf
-		ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; Switch to 32bit protected mode.
-;
-switch_to_pm32:
-		call switch_to_pm
-		switch_to_bits 32
-		o16 ret
-
-
-; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-; Switch to real mode from 32bit protected mode.
-;
-switch_to_rm32:
-		switch_to_bits 16
-		call switch_to_rm
 		o32 ret
 
+
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+		bits 32
+
+%include	"kroete.inc"
+%include	"modplay.inc"
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ;

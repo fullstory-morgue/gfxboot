@@ -1,1 +1,0 @@
-../SuSE/keytables.inc
