@@ -1,8 +1,8 @@
-gfxboot (3.3.18-4) UNRELEASED; urgency=low
+gfxboot (3.3.18-4) unstable; urgency=low
 
-  * NOT RELEASED YET
+  * add libhtml-parser-perl to dependencies.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 16:38:04 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 18:41:55 +0100
 
 gfxboot (3.3.18-3) unstable; urgency=low
 
