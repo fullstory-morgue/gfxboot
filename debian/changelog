@@ -7,8 +7,9 @@ gfxboot (3.3.18-1) unstable; urgency=low
   * add libfreetype6-dev to build dependencies, it isn't pulled in implicitly
     any longer.
   * fix html documentation.
+  * fix PDF documenation, build it on default.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 15:39:36 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 15:56:11 +0100
 
 gfxboot (3.2.35-1) unstable; urgency=low
 
