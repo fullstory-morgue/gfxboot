@@ -1,3 +1,5 @@
-bindir.dpatch
-build_docs.dpatch
-fix-sgml_build-pdf.dpatch
+01_bindir.dpatch
+02_build_docs.dpatch
+03_fix-sgml_build-pdf.dpatch
+04_mkbootmsg_asprintf.dpatch
+05_mkbootmsg_ctype.dpatch

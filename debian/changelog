@@ -1,3 +1,17 @@
+gfxboot (3.3.18-3) unstable; urgency=low
+
+  * include Ubuntu patches written by Colin Watson <cjwatson@ubuntu.com>:
+    - debian/patches/04_mkbootmsg_asprintf.dpatch: Fix some non-exploitable
+      buffer overflows in mkbootmsg (closes: Malone #27011).
+    - debian/patches/05_mkbootmsg_ctype.dpatch: Make sure to pass unsigned
+      chars to isspace(), per the C standard; not doing so can cause
+      problems on powerpc and other architectures.
+  * don't include debian/patches/06_getx11font_endianness.dpatch for now, not
+    only has getx11font.c become mkblfont.c, I can't test an adapted version
+    of the proposed patch anyways (and grub-gfxboot is i386-any/ amd64-any).
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 16:31:21 +0100
+
 gfxboot (3.3.18-2) unstable; urgency=low
 
   * do not compress PDF files as documentation.
