@@ -1,3 +1,10 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 04_mkbootmsg_asprintf.dpatch by Colin Watson <cjwatson@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
 diff -urNad gfxboot-3.2.23~/mkbootmsg.c gfxboot-3.2.23/mkbootmsg.c
 --- gfxboot-3.2.23~/mkbootmsg.c	2006-01-23 10:03:57.000000000 +0000
 +++ gfxboot-3.2.23/mkbootmsg.c	2006-07-12 12:23:24.000000000 +0100

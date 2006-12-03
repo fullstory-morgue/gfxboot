@@ -1,3 +1,10 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 05_mkbootmsg_endianness.dpatch by Colin Watson <cjwatson@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
 diff -urNad gfxboot-3.2.23~/mkbootmsg.c gfxboot-3.2.23/mkbootmsg.c
 --- gfxboot-3.2.23~/mkbootmsg.c	2006-07-12 12:27:05.000000000 +0100
 +++ gfxboot-3.2.23/mkbootmsg.c	2006-07-12 12:29:01.000000000 +0100
