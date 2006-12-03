@@ -1,0 +1,16 @@
+diff -Nur trunk/Makefile trunk.new/Makefile
+--- trunk/Makefile	2006-12-03 14:53:05.000000000 +0100
++++ trunk.new/Makefile	2006-12-03 15:03:02.000000000 +0100
+@@ -40,9 +40,9 @@
+ 	as --32 -ahlsn=jpeg.lst -o $@ $<
+ 
+ install: all
+-	install -d -m 755 $(DESTDIR)/usr/sbin $(DESTDIR)/usr/share/gfxboot
+-	install -m 755 mkbootmsg mkblfont help2txt $(DESTDIR)/usr/sbin
+-	cp -a themes $(DESTDIR)/usr/share/gfxboot
++	install -d -m 755 $(DESTDIR)/usr/bin $(DESTDIR)/usr/share/gfxboot
++	install -m 755 mkbootmsg mkblfont help2txt $(DESTDIR)/usr/bin
++	#cp -a themes $(DESTDIR)/usr/share/gfxboot
+ 	cp -a bin $(DESTDIR)/usr/share/gfxboot
+ 
+ clean: themes doc

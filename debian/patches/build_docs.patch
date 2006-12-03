@@ -1,0 +1,21 @@
+diff -Nur trunk/Makefile trunk.new/Makefile
+--- trunk/Makefile	2006-12-03 14:53:05.000000000 +0100
++++ trunk.new/Makefile	2006-12-03 15:04:24.000000000 +0100
+@@ -6,7 +6,7 @@
+ 
+ .PHONY: all themes clean install doc
+ 
+-all:	bin2c mkbootmsg bincode mkblfont addblack
++all:	bin2c mkbootmsg bincode mkblfont addblack doc
+ 
+ mkblfont: mkblfont.c
+ 	$(CC) $(CFLAGS) -I /usr/include/freetype2 -lfreetype $< -o $@
+@@ -44,6 +44,8 @@
+ 	install -m 755 mkbootmsg mkblfont help2txt $(DESTDIR)/usr/sbin
+ 	cp -a themes $(DESTDIR)/usr/share/gfxboot
+ 	cp -a bin $(DESTDIR)/usr/share/gfxboot
++	install -m 755 -d $(DESTDIR)/usr/share/doc/gfxboot
++	install -m 644 gfxboot.html $(DESTDIR)/usr/share/doc/gfxboot/
+ 
+ clean: themes doc
+ 	@rm -f mkbootmsg bincode mkblfont addblack bincode.h bin2c *.lst *.map vocabulary.inc vocabulary.h *.o *~
