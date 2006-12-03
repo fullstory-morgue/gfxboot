@@ -1,3 +1,9 @@
+gfxboot (3.3.18-4) UNRELEASED; urgency=low
+
+  * NOT RELEASED YET
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 16:38:04 +0100
+
 gfxboot (3.3.18-3) unstable; urgency=low
 
   * include Ubuntu patches written by Colin Watson <cjwatson@ubuntu.com>:
