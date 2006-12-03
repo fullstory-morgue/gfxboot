@@ -2,8 +2,9 @@ gfxboot (3.3.18-1) unstable; urgency=low
 
   * New upstream release.
   * ABI incompatbile to gfxboot 3.2!
+  * 01_x11libs.dpatch is no longer needed.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 14:56:01 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 14:58:52 +0100
 
 gfxboot (3.2.35-2) UNRELEASED; urgency=low
 
