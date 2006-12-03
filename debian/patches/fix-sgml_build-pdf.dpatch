@@ -1,0 +1,38 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## fix-sgml_build-pdf.dpatch by Stefan Lippers-Hollmann <s.l-h@gmx.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad trunk~/doc/Makefile trunk/doc/Makefile
+--- trunk~/doc/Makefile	2006-12-03 15:54:25.000000000 +0100
++++ trunk/doc/Makefile	2006-12-03 15:55:19.000000000 +0100
+@@ -1,7 +1,7 @@
+ PROJECT	= gfxboot
+ XMLSRC	= gfxboot.xml reference.xml
+ 
+-all: html
++all: html pdf
+ doc: html txt
+ 
+ reference.xml: ../bincode.asm
+@@ -22,5 +22,5 @@
+ 
+ install:
+ 	install -m 755 -d $(DESTDIR)/usr/share/doc/gfxboot
+-	install -m 644 gfxboot.html $(DESTDIR)/usr/share/doc/gfxboot/
++	install -m 644 gfxboot.{html,pdf} $(DESTDIR)/usr/share/doc/gfxboot/
+ 
+diff -urNad trunk~/doc/gfxboot.xml trunk/doc/gfxboot.xml
+--- trunk~/doc/gfxboot.xml	2006-12-03 14:53:04.000000000 +0100
++++ trunk/doc/gfxboot.xml	2006-12-03 15:54:52.000000000 +0100
+@@ -125,7 +125,7 @@
+   </para>
+ 
+   <example><title/><para><programlisting>
+-     "1 Euro = 1 €\n"
++     "1 Euro = 1 &#x20AC;\n"
+      "1 Euro = 1 \u20ac\n"
+      "1 Euro = 1 \xe2\x82\xac\n"
+    </programlisting></para></example>
