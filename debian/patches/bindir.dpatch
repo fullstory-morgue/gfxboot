@@ -1,3 +1,10 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## bindir.patch by Stefan Lippers-Hollmann <s.l-h@gmx.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description
+
+@DPATCH@
 diff -Nur trunk/Makefile trunk.new/Makefile
 --- trunk/Makefile	2006-12-03 14:53:05.000000000 +0100
 +++ trunk.new/Makefile	2006-12-03 15:03:02.000000000 +0100
