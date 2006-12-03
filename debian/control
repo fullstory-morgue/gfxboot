@@ -2,7 +2,7 @@ Source: gfxboot
 Section: utils
 Priority: optional
 Maintainer: Stefan Lippers-Hollmann <s.l-h@gmx.de>
-Build-Depends: cdbs, debhelper (>= 5), patchutils, dpatch, x-dev, libx11-dev, nasm, xmlto
+Build-Depends: cdbs, debhelper (>= 5), patchutils, dpatch, x-dev, libx11-dev, libfreetype6-dev, nasm, xmlto
 Standards-Version: 3.7.2
 
 Package: gfxboot
