@@ -1,2 +1,3 @@
 bindir.dpatch
 build_docs.dpatch
+fix-sgml.dpatch

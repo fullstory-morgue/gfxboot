@@ -5,9 +5,9 @@
 ## DP: No description
 
 @DPATCH@
-diff -Nur trunk/Makefile trunk.new/Makefile
---- trunk/Makefile	2006-12-03 14:53:05.000000000 +0100
-+++ trunk.new/Makefile	2006-12-03 15:04:24.000000000 +0100
+diff -urNad trunk~/Makefile trunk/Makefile
+--- trunk~/Makefile	2006-12-03 15:30:28.000000000 +0100
++++ trunk/Makefile	2006-12-03 15:30:28.000000000 +0100
 @@ -6,7 +6,7 @@
  
  .PHONY: all themes clean install doc
@@ -17,12 +17,15 @@ diff -Nur trunk/Makefile trunk.new/Makefile
  
  mkblfont: mkblfont.c
  	$(CC) $(CFLAGS) -I /usr/include/freetype2 -lfreetype $< -o $@
-@@ -44,6 +44,8 @@
- 	install -m 755 mkbootmsg mkblfont help2txt $(DESTDIR)/usr/sbin
- 	cp -a themes $(DESTDIR)/usr/share/gfxboot
- 	cp -a bin $(DESTDIR)/usr/share/gfxboot
+diff -urNad trunk~/doc/Makefile trunk/doc/Makefile
+--- trunk~/doc/Makefile	2006-12-03 03:16:17.000000000 +0100
++++ trunk/doc/Makefile	2006-12-03 15:30:41.000000000 +0100
+@@ -19,3 +19,8 @@
+ 
+ clean:
+ 	rm -rf *~ *.pdf *.html *.txt reference.xml *.dsl *.local
++
++install:
 +	install -m 755 -d $(DESTDIR)/usr/share/doc/gfxboot
 +	install -m 644 gfxboot.html $(DESTDIR)/usr/share/doc/gfxboot/
- 
- clean: themes doc
- 	@rm -f mkbootmsg bincode mkblfont addblack bincode.h bin2c *.lst *.map vocabulary.inc vocabulary.h *.o *~
++
