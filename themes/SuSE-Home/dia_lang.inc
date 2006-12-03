@@ -1,1 +1,0 @@
-../SuSE/dia_lang.inc

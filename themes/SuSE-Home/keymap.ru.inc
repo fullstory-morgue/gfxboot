@@ -1,1 +1,0 @@
-../SuSE/keymap.ru.inc

@@ -1,1 +1,0 @@
-../SuSE/bsplash.inc

@@ -1,1 +1,0 @@
-../SuSE/common.inc

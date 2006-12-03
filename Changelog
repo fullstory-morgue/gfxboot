@@ -1,3 +1,79 @@
+24/11/2006:	v3.3.18
+	- fixed penguin theme bug (#216991)
+	- lang menu sometimes shows only locale name
+
+20/11/2006:	v3.3.17
+	- translations updated
+	- minor penguin setup correction
+
+17/11/2006:	v3.3.16
+	- adjust 640x480 menu sizes (#221139)
+	- tuning layout
+	- make penguins more likely during winter
+
+15/11/2006:	v3.3.15
+	- updated documentation
+	- get initrd size right for progress bar
+
+14/11/2006:	v3.3.14
+	- fix doc file permission
+
+13/11/2006:	v3.3.13
+	- help text parser rewritten
+	- new translations
+	- added final 10.2 theme
+
+7/11/2006:	v3.3.12
+	- new translations
+
+27/10/2006:	v3.3.11
+	- penguin theme is back
+	- adjust html help text parser
+
+26/10/2006:	v3.3.10
+	- new translations
+
+23/10/2006:	v3.3.9
+	- added 'noinstallopt' option to gfxboot.cfg
+
+26/9/2006:	v3.3.8
+	- translations updated
+
+25/9/2006:	v3.3.7
+	- Arabic is back
+
+25/9/2006:	v3.3.6
+	- added 'firmware' menu entry
+
+20/9/2006:	v3.3.5
+	- support Punjabi (Gurmukhi script)
+
+20/9/2006:	v3.3.4
+	- fixed font rendering bug
+	- added some indic fonts
+
+19/9/2006:	v3.3.3
+	- use 4 bit for antialiasing (not 3)
+
+19/9/2006:	v3.3.2
+	- fix Estonian support
+
+18/9/2006:	v3.3.1
+	- support antialiased fonts
+	- added Estonian
+	- put hard disk install option back in
+
+23/8/2006:	v3.3.0
+	- 32 bit rewrite finished
+	- changed interface to bootloader
+
+21/8/2006:	v3.2.37
+	- move to 32 bit, cont.
+
+7/8/2006:	v3.2.36
+	- move to 32 bit, cont.
+	- added 10.2 openSUSE logos
+
 1/8/2006:	v3.2.35
 	- started internal rewrite to run all code in 32 bit pm
 
