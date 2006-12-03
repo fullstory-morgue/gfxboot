@@ -1,3 +1,9 @@
+gfxboot (3.3.18-2) unstable; urgency=low
+
+  * do not compress PDF files as documentation.
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Sun,  3 Dec 2006 16:01:24 +0100
+
 gfxboot (3.3.18-1) unstable; urgency=low
 
   * New upstream release.
