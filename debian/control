@@ -7,7 +7,7 @@ Standards-Version: 3.7.2
 
 Package: gfxboot
 Architecture: amd64 i386
-Depends: ${shlibs:Depends}, ${misc:Depends}, libhtml-parser-perl
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: grub-gfxboot (>> 0.97-12)
 Suggests: gfxboot-theme-suse | gfxboot-theme-sles | gfxboot-theme-nld
 Description: bootlogo creator for gfxboot compliant boot loaders

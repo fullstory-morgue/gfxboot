@@ -1,3 +1,9 @@
+gfxboot (3.3.18-5) unstable; urgency=low
+
+  * gfxboot itself doesn't depend on libhtml-parser-perl, fix the the themes.
+
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Tue,  5 Dec 2006 12:08:45 +0100
+
 gfxboot (3.3.18-4) unstable; urgency=low
 
   * add libhtml-parser-perl to dependencies.
@@ -26,7 +32,43 @@ gfxboot (3.3.18-2) unstable; urgency=low
 
 gfxboot (3.3.18-1) unstable; urgency=low
 
-  * New upstream release.
+  * New upstream release:
+    - fixed penguin theme bug (#216991)
+    - lang menu sometimes shows only locale name
+    - translations updated
+    - minor penguin setup correction
+    - adjust 640x480 menu sizes (#221139)
+    - tuning layout
+    - make penguins more likely during winter
+    - updated documentation
+    - get initrd size right for progress bar
+    - fixed Requires
+    - fix doc file permission
+    - help text parser rewritten
+    - new translations
+    - added final 10.2 theme
+    - new translations
+    - penguin theme is back
+    - adjust html help text parser
+    - new translations
+    - translations updated
+    - added 'noinstallopt' option to gfxboot.cfg
+    - Arabic is back
+    - added 'firmware' menu entry
+    - support Punjabi (Gurmukhi script)
+    - fixed font rendering bug
+    - added some indic fonts
+    - use 4 bit for antialiasing (not 3)
+    - fix Estonian support
+    - correct filelist
+    - support antialiased fonts
+    - added Estonian
+    - put hard disk install option back in
+    - 32 bit rewrite finished
+    - changed interface to bootloader
+    - move to 32 bit, cont.
+    - move to 32 bit, cont.
+    - added 10.2 openSUSE logos
   * ABI incompatbile to gfxboot 3.2!
   * 01_x11libs.dpatch is no longer needed.
   * adapt patches.
