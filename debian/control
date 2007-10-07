@@ -4,8 +4,8 @@ Priority: optional
 Maintainer: Stefan Lippers-Hollmann <s.l-h@gmx.de>
 Build-Depends: cdbs, debhelper (>= 5), patchutils, dpatch, x-dev, libx11-dev, libfreetype6-dev, nasm, xmlto, docbook-utils
 Standards-Version: 3.7.2
-XS-Vcs-Svn: svn://svn.berlios.de/fullstory/gfxboot/trunk
-XS-Vcs-Browser: http://svn.berlios.de/wsvn/fullstory/gfxboot/trunk/
+Vcs-Svn: svn://svn.berlios.de/fullstory/gfxboot/trunk
+Vcs-Browser: http://svn.berlios.de/wsvn/fullstory/gfxboot/trunk/
 
 Package: gfxboot
 Architecture: amd64 i386
