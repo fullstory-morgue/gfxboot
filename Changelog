@@ -1,3 +1,53 @@
+8/10/2007:	v3.3.39
+	- Avi Kivity: SS does not survive switch to PM in KVM (#307194)
+
+25/9/2007:	v3.3.38
+	- 'benventuno' is not really an italian word (#327546)
+
+14/9/2007:	v3.3.37
+	- fixed build
+
+12/9/2007:	v3.3.36
+	- always ask for VBE2 info (to e.g. get 1366x768 listed - #298025)
+	- new welcome screen animation
+
+10/9/2007:	v3.3.35
+	- updated translations
+
+22/8/2007:	v3.3.34
+	- fix livecd mode
+
+20/8/2007:	v3.3.33
+	- new translations
+
+13/8/2007:	v3.3.32
+	- use autohinting for lohit_pa, gulim, FZHeiTi (#299568)
+
+10/8/1007:	v3.3.31
+	- allow to set default values for repository
+
+9/8/2007:	v3.3.30
+	- updated po files
+
+3/8/2007:	v3.3.29
+	- change default lang en -> en_US
+
+26/7/2007:	v3.3.28
+	- adjusted menu texts
+
+24/7/2007:	v3.3.27
+	- no graphics on problematic via boards (#231104)
+
+23/7/2007:	v3.3.26
+	- added Sinhala
+	- moved 'install - XXX' variants into submenu, added 'repair' entry (#293827)
+	- go green
+
+19/7/2007:	v3.3.25
+	- rewrote line edit function
+	- intro aborted if any key pressed (#219570)
+	- added Walloon
+
 15/3/2007:	v3.3.24
 	- basic rtl language support
 
