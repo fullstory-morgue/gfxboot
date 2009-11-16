@@ -1,8 +1,10 @@
-gfxboot (3.3.39-5) UNRELEASED; urgency=low
+gfxboot (3.3.39-5) ORPHANED; urgency=low
 
   * NOT RELEASED YET
+  * Non-maintainer upload.
+  * ORPHAN package, it has entered Debian proper.
 
- -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Wed, 20 Feb 2008 22:43:13 +0100
+ -- Stefan Lippers-Hollmann <s.l-h@gmx.de>  Mon, 16 Nov 2009 23:26:16 +0100
 
 gfxboot (3.3.39-4) unstable; urgency=low
 
